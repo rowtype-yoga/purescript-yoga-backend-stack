@@ -1,31 +1,31 @@
 module Test.Yoga.Fastify.Om.ResponseHeadersExample where
 
 {-
-  Endpoint Response API Examples
-  ==============================
+  Endpoint API - Tests as Documentation
+  ======================================
 
-  This test file demonstrates the Endpoint API with:
-  - Type-safe response headers (homogeneous records, all String values)
-  - Real HTTP header names using quotes: { "Content-Type": "...", "X-Request-Id": "..." }
-  - Status code control
-  - Field omission via Union constraint
+  EndpointHandler has 6 type parameters:
+  
+  EndpointHandler path request responseHeaders response ctx err
+                  ^^^^  ^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^ ^^^ ^^^
+                  |     |        |                |        |   error type
+                  |     |        |                |        app context
+                  |     |        |                response body type
+                  |     |        OUTGOING response headers (what YOU send back)
+                  |     INCOMING request (query/headers/body) - Union constraint!
+                  path type (route matching)
 
-  Key Features:
-  1. Handlers return { status, headers, body }
-  2. Headers are homogeneous records (all fields String type)
-  3. Use actual HTTP header names with quotes (no conversion)
-  4. Empty headers record {} for no custom headers
-  5. Union constraint allows omitting query/headers/body fields
-
-  Examples below show:
-  - Simple response (no custom headers)
-  - Response with custom headers
-  - Response with many headers
-  - Different status codes
+  Examples show:
+  1. Minimal request (just body) - Union allows omitting query/headers
+  2. Request with query params - Union allows omitting headers  
+  3. Request with headers - Union allows omitting query
+  4. Full request (all fields)
+  5. Different response headers
 -}
 
 import Prelude
 import Data.Generic.Rep (class Generic)
+import Data.Maybe (Maybe)
 import Routing.Duplex (RouteDuplex')
 import Routing.Duplex as RD
 import Routing.Duplex.Generic as RG
@@ -63,28 +63,15 @@ apiRoute = RD.root $ RG.sum
 
 type AppContext = ()
 
--- ============================================================================
--- Example 1: Simple Response - No Custom Headers
--- ============================================================================
-
+-- Example 1: Minimal request - just body (Union allows omitting query/headers)
 type CreateUserRequest = { body :: RequestBody CreateUserReq }
 
-createUserEndpoint :: E.Endpoint ApiRoute CreateUserRequest User
-createUserEndpoint = E.endpoint apiRoute (Proxy :: _ CreateUserRequest) (Proxy :: _ User)
-
-createUserHandler
-  :: E.EndpointHandler
-       ApiRoute
-       CreateUserRequest
-       () -- No custom headers
-       User
-       AppContext
-       ()
+createUserHandler :: E.EndpointHandler ApiRoute CreateUserRequest () User AppContext ()
 createUserHandler { path, request } =
   case path, request.body of
     CreateUser, JSONBody { name, email } -> pure
       { status: E.StatusCode 201
-      , headers: {} -- Empty headers record
+      , headers: {}
       , body: { id: 1, name, email }
       }
     _, _ -> pure
@@ -93,27 +80,45 @@ createUserHandler { path, request } =
       , body: { id: 0, name: "error", email: "error" }
       }
 
--- ============================================================================
--- Example 2: Response with Custom Headers (Real HTTP Header Names!)
--- ============================================================================
+-- Example 2: Request with query params (Union allows omitting headers)
+type ListUsersRequest =
+  { query :: Record (page :: Int, limit :: Int)
+  , body :: RequestBody Unit
+  }
 
-createUserWithHeadersHandler
+listUsersHandler :: E.EndpointHandler ApiRoute ListUsersRequest () (Array User) AppContext ()
+listUsersHandler { path, request } = do
+  let { page, limit } = request.query
+  pure
+    { status: E.StatusCode 200
+    , headers: {}
+    , body: [ { id: 1, name: "Alice", email: "alice@example.com" }
+            , { id: 2, name: "Bob", email: "bob@example.com" }
+            ]
+    }
+
+-- Example 3: Request with incoming headers (Union allows omitting query)
+type AuthenticatedCreateRequest =
+  { headers :: Record (authorization :: String)
+  , body :: RequestBody CreateUserReq
+  }
+
+authenticatedCreateHandler
   :: E.EndpointHandler
        ApiRoute
-       CreateUserRequest
-       ( "Location" :: String
-       , "X-Request-Id" :: String
-       ) -- Real HTTP header names with quotes!
+       AuthenticatedCreateRequest
+       ( "Location" :: String, "X-Request-Id" :: String )  -- OUTGOING response headers
        User
        AppContext
        ()
-createUserWithHeadersHandler { path, request } =
+authenticatedCreateHandler { path, request } =
   case path, request.body of
     CreateUser, JSONBody { name, email } -> do
+      let authToken = request.headers.authorization  -- INCOMING request header
       let userId = 123
       pure
         { status: E.StatusCode 201
-        , headers:
+        , headers:  -- OUTGOING response headers
             { "Location": "/users/" <> show userId
             , "X-Request-Id": "req-abc-123"
             }
@@ -121,32 +126,39 @@ createUserWithHeadersHandler { path, request } =
         }
     _, _ -> pure
       { status: E.StatusCode 400
-      , headers:
-          { "Location": ""
-          , "X-Request-Id": "req-error"
-          }
+      , headers: { "Location": "", "X-Request-Id": "req-error" }
       , body: { id: 0, name: "error", email: "error" }
       }
 
 -- ============================================================================
--- Example 3: Response with Many Headers
+-- Example 4: Full Request - Query + Headers + Body (Union constraint!)
 -- ============================================================================
+-- This request specifies ALL fields - nothing omitted
 
-createUserWithManyHeadersHandler
+type FullCreateRequest =
+  { query :: Record (dryRun :: Maybe Boolean)     -- Query params
+  , headers :: Record (authorization :: String)   -- Request headers
+  , body :: RequestBody CreateUserReq             -- Body
+  }
+
+fullCreateHandler
   :: E.EndpointHandler
-       ApiRoute
-       CreateUserRequest
-       ( "Location" :: String
+       ApiRoute                         -- path type
+       FullCreateRequest                -- request with ALL fields!
+       ( "Location" :: String           -- many response headers
        , "X-Request-Id" :: String
        , "Content-Type" :: String
        , "Cache-Control" :: String
        )
-       User
+       User                             -- response body
        AppContext
        ()
-createUserWithManyHeadersHandler { path, request } =
+fullCreateHandler { path, request } =
   case path, request.body of
     CreateUser, JSONBody { name, email } -> do
+      -- Access ALL request fields!
+      let _ = request.headers.authorization  -- Request header
+      let _ = request.query.dryRun           -- Query param
       let userId = 123
       pure
         { status: E.StatusCode 201
@@ -169,27 +181,15 @@ createUserWithManyHeadersHandler { path, request } =
       , body: { id: 0, name: "error", email: "error" }
       }
 
--- ============================================================================
--- Example 4: Different Status Codes
--- ============================================================================
-
-getUserHandler
-  :: E.EndpointHandler
-       ApiRoute
-       { body :: RequestBody Unit }
-       ()
-       User
-       AppContext
-       ()
+-- Example 5: Different status codes
+getUserHandler :: E.EndpointHandler ApiRoute { body :: RequestBody Unit } () User AppContext ()
 getUserHandler { path } =
   case path of
-    GetUser ->
-      -- Found
-      pure
-        { status: E.StatusCode 200
-        , headers: {}
-        , body: { id: 1, name: "Alice", email: "alice@example.com" }
-        }
+    GetUser -> pure
+      { status: E.StatusCode 200
+      , headers: {}
+      , body: { id: 1, name: "Alice", email: "alice@example.com" }
+      }
     _ -> pure
       { status: E.StatusCode 400
       , headers: {}
