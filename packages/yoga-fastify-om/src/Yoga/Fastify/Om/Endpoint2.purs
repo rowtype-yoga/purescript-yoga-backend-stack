@@ -28,13 +28,8 @@ module Yoga.Fastify.Om.Endpoint2
 import Prelude
 
 import Control.Monad (void)
-import Data.Array as Array
 import Data.Either (Either(..))
-import Data.Foldable (foldl)
 import Data.Maybe (Maybe(..))
-import Data.String (Pattern(..), Replacement(..), replaceAll)
-import Data.String as String
-import Data.String.CodeUnits as SCU
 import Data.Symbol (class IsSymbol, reflectSymbol)
 import Data.Undefined.NoProblem (Opt)
 import Effect (Effect)
@@ -342,37 +337,9 @@ coerceHandler = unsafeCoerce
 -- Response Header Setting
 --------------------------------------------------------------------------------
 
--- | Convert camelCase field name to HTTP header name
--- | Examples: contentType -> Content-Type, xRequestId -> X-Request-Id
-toHeaderName :: String -> String
-toHeaderName = splitCamelCase >>> joinWithDash >>> capitalizeWords
-  where
-  splitCamelCase s =
-    SCU.toCharArray s
-      # foldl
-          ( \{ acc, prev } c ->
-              if isUpper c && prev /= '-' then
-                { acc: acc <> "-" <> SCU.singleton c, prev: c }
-              else
-                { acc: acc <> SCU.singleton c, prev: c }
-          )
-          { acc: "", prev: '-' }
-      # _.acc
-
-  isUpper c = c >= 'A' && c <= 'Z'
-
-  joinWithDash = identity
-
-  capitalizeWords s = s
-    # String.split (Pattern "-")
-    # map capitalize
-    # String.joinWith "-"
-
-  capitalize s = case String.uncons s of
-    Nothing -> ""
-    Just { head, tail } -> String.toUpper (String.singleton head) <> tail
-
 -- | Set response headers from a record using RowList
+-- | Field names should be actual HTTP header names (use quotes for special chars)
+-- | Example: { "Content-Type": "application/json", "X-Request-Id": "123" }
 class SetHeaders (headers :: Row Type) where
   setHeaders :: Record headers -> FastifyReply -> Effect FastifyReply
 
@@ -395,8 +362,7 @@ instance
   SetHeadersRL (RL.Cons name String tail) headers where
   setHeadersRL _ headers reply = do
     let
-      key = reflectSymbol (Proxy :: Proxy name)
-      headerName = toHeaderName key
+      headerName = reflectSymbol (Proxy :: Proxy name)
       value = Record.get (Proxy :: Proxy name) headers
       tailHeaders = Record.delete (Proxy :: Proxy name) headers :: Record tailRow
 

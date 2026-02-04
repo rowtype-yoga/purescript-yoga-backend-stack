@@ -41,16 +41,16 @@ createUserHandler { path, request } =
       }
 ```
 
-### 2. Custom Headers (Homogeneous Record)
+### 2. Custom Headers (Real HTTP Header Names!)
 
 ```purescript
 createUserWithHeadersHandler
   :: EndpointHandler2
        ApiRoute
        CreateUserRequest
-       ( location :: String
-       , xRequestId :: String
-       )  -- Homogeneous headers record
+       ( "Location" :: String
+       , "X-Request-Id" :: String
+       )  -- Real HTTP header names with quotes!
        User
        AppContext
        ()
@@ -61,8 +61,8 @@ createUserWithHeadersHandler { path, request } =
       pure
         { status: StatusCode 201
         , headers:
-            { location: "/users/" <> show userId
-            , xRequestId: "req-abc-123"
+            { "Location": "/users/" <> show userId
+            , "X-Request-Id": "req-abc-123"
             }
         , body: { id: userId, name, email }
         }
@@ -75,10 +75,10 @@ handler
   :: EndpointHandler2
        ApiRoute
        CreateUserRequest
-       ( location :: String
-       , xRequestId :: String
-       , contentType :: String
-       , cacheControl :: String
+       ( "Location" :: String
+       , "X-Request-Id" :: String
+       , "Content-Type" :: String
+       , "Cache-Control" :: String
        )
        User
        AppContext
@@ -88,42 +88,44 @@ handler { path, request } =
     CreateUser, JSONBody { name, email } -> pure
       { status: StatusCode 201
       , headers:
-          { location: "/users/123"
-          , xRequestId: "req-abc-123"
-          , contentType: "application/json; charset=utf-8"
-          , cacheControl: "no-cache"
+          { "Location": "/users/123"
+          , "X-Request-Id": "req-abc-123"
+          , "Content-Type": "application/json; charset=utf-8"
+          , "Cache-Control": "no-cache"
           }
       , body: { id: 123, name, email }
       }
 ```
 
-## Header Name Conversion
+## Real HTTP Header Names
 
-Field names in camelCase are automatically converted to HTTP header names:
+Use **actual HTTP header names** with quotes in PureScript records:
 
 ```purescript
-{ contentType: "application/json" }       → Content-Type: application/json
-{ xRequestId: "123" }                     → X-Request-Id: 123
-{ cacheControl: "no-cache" }              → Cache-Control: no-cache
-{ location: "/users/123" }                → Location: /users/123
+{ "Content-Type": "application/json" }     -- Real HTTP header!
+{ "X-Request-Id": "123" }                  -- Real HTTP header!
+{ "Cache-Control": "no-cache" }            -- Real HTTP header!
+{ "Location": "/users/123" }               -- Real HTTP header!
 ```
+
+No conversion needed - the field names ARE the HTTP headers! ✨
 
 ## Benefits
 
 ### ✅ Type-Safe Headers
 ```purescript
 -- Compiler checks header names!
-{ location: "/users/123"
-, xRequestId: "abc"
+{ "Location": "/users/123"
+, "X-Request-Id": "abc"
 }  -- ✓ Compiles
 
-{ loaction: "/users/123" }  -- ❌ Typo caught at compile time!
+{ "Loaction": "/users/123" }  -- ❌ Typo caught at compile time!
 ```
 
-### ✅ Clean Syntax
+### ✅ Clean Syntax - Real Header Names!
 ```purescript
--- No Object.fromFoldable or Tuple nonsense!
-headers: { location: "/users/123", xRequestId: "abc" }
+-- No conversion! Use actual HTTP headers!
+headers: { "Location": "/users/123", "X-Request-Id": "abc" }
 ```
 
 ### ✅ Flexible
@@ -131,20 +133,24 @@ headers: { location: "/users/123", xRequestId: "abc" }
 -- No headers
 headers: {}
 
-// One header
-headers: { location: "/users/123" }
+-- One header
+headers: { "Location": "/users/123" }
 
 -- Many headers
-headers: { location: "/users/123", xRequestId: "abc", contentType: "..." }
+headers: 
+  { "Location": "/users/123"
+  , "X-Request-Id": "abc"
+  , "Content-Type": "application/json"
+  }
 ```
 
 ### ✅ All Values Must Be Strings
 ```purescript
-// ❌ Won't compile - wrong type
-headers: { age: 42 }
+-- ❌ Won't compile - wrong type
+headers: { "Age": 42 }
 
-// ✅ Compiles - all strings
-headers: { age: "42" }
+-- ✅ Compiles - all strings
+headers: { "Age": "42" }
 ```
 
 ## Complete Example
@@ -166,13 +172,13 @@ createUserEndpoint = E2.endpoint2 apiRoute
   (Proxy :: _ CreateUserRequest) 
   (Proxy :: _ User)
 
--- Handler with custom headers
+-- Handler with custom headers (real HTTP header names!)
 createUserHandler
   :: E2.EndpointHandler2
        ApiRoute
        CreateUserRequest
-       ( location :: String
-       , xRequestId :: String
+       ( "Location" :: String
+       , "X-Request-Id" :: String
        )
        User
        AppContext
@@ -188,15 +194,15 @@ createUserHandler { path, request } =
       pure
         { status: E2.StatusCode 201
         , headers:
-            { location: "/users/" <> show userId
-            , xRequestId: requestId
+            { "Location": "/users/" <> show userId
+            , "X-Request-Id": requestId
             }
         , body: { id: userId, name, email }
         }
     
     _, _ -> pure
       { status: E2.StatusCode 400
-      , headers: { location: "", xRequestId: "" }
+      , headers: { "Location": "", "X-Request-Id": "" }
       , body: { id: 0, name: "error", email: "error" }
       }
 ```
@@ -224,7 +230,7 @@ pure { status: StatusCode 500, headers: {}, body: error }  -- Internal Server Er
 
 ### SetHeaders Typeclass
 
-Automatically converts record fields to HTTP headers using RowList:
+Automatically sets HTTP headers from record using RowList:
 
 ```purescript
 class SetHeaders (headers :: Row Type) where
@@ -235,13 +241,14 @@ instance (RowToList headers rl, SetHeadersRL rl headers) => SetHeaders headers w
   setHeaders = setHeadersRL (Proxy :: Proxy rl)
 ```
 
-### Header Name Conversion
+### No Conversion Needed!
+
+Field names are used directly as HTTP header names:
 
 ```purescript
-toHeaderName :: String -> String
--- contentType    → Content-Type
-// xRequestId     → X-Request-Id
--- cacheControl   → Cache-Control
+{ "Content-Type": "application/json" }  -- Field name IS the header name!
+{ "X-Request-Id": "123" }               -- No conversion!
+{ "Cache-Control": "no-cache" }         -- Direct mapping!
 ```
 
 ## Migration from Old API

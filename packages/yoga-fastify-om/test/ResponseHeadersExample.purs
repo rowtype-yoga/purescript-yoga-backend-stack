@@ -70,16 +70,16 @@ createUserHandler { path, request } =
       }
 
 -- ============================================================================
--- Example 2: Response with Custom Headers (Homogeneous Record)
+-- Example 2: Response with Custom Headers (Real HTTP Header Names!)
 -- ============================================================================
 
 createUserWithHeadersHandler
   :: E2.EndpointHandler2
        ApiRoute
        CreateUserRequest
-       ( location :: String
-       , xRequestId :: String
-       )  -- Homogeneous headers record
+       ( "Location" :: String
+       , "X-Request-Id" :: String
+       )  -- Real HTTP header names with quotes!
        User
        AppContext
        ()
@@ -90,16 +90,16 @@ createUserWithHeadersHandler { path, request } =
       pure
         { status: E2.StatusCode 201
         , headers:
-            { location: "/users/" <> show userId
-            , xRequestId: "req-abc-123"
+            { "Location": "/users/" <> show userId
+            , "X-Request-Id": "req-abc-123"
             }
         , body: { id: userId, name, email }
         }
     _, _ -> pure
       { status: E2.StatusCode 400
       , headers:
-          { location: ""
-          , xRequestId: "req-error"
+          { "Location": ""
+          , "X-Request-Id": "req-error"
           }
       , body: { id: 0, name: "error", email: "error" }
       }
@@ -112,10 +112,10 @@ createUserWithManyHeadersHandler
   :: E2.EndpointHandler2
        ApiRoute
        CreateUserRequest
-       ( location :: String
-       , xRequestId :: String
-       , contentType :: String
-       , cacheControl :: String
+       ( "Location" :: String
+       , "X-Request-Id" :: String
+       , "Content-Type" :: String
+       , "Cache-Control" :: String
        )
        User
        AppContext
@@ -127,20 +127,20 @@ createUserWithManyHeadersHandler { path, request } =
       pure
         { status: E2.StatusCode 201
         , headers:
-            { location: "/users/" <> show userId
-            , xRequestId: "req-abc-123"
-            , contentType: "application/json; charset=utf-8"
-            , cacheControl: "no-cache"
+            { "Location": "/users/" <> show userId
+            , "X-Request-Id": "req-abc-123"
+            , "Content-Type": "application/json; charset=utf-8"
+            , "Cache-Control": "no-cache"
             }
         , body: { id: userId, name, email }
         }
     _, _ -> pure
       { status: E2.StatusCode 400
       , headers:
-          { location: ""
-          , xRequestId: "req-error"
-          , contentType: "application/json"
-          , cacheControl: "no-cache"
+          { "Location": ""
+          , "X-Request-Id": "req-error"
+          , "Content-Type": "application/json"
+          , "Cache-Control": "no-cache"
           }
       , body: { id: 0, name: "error", email: "error" }
       }
@@ -157,7 +157,7 @@ getUserHandler
        User
        AppContext
        ()
-getUserHandler { path, request } =
+getUserHandler { path } =
   case path of
     GetUser ->
       -- Found
