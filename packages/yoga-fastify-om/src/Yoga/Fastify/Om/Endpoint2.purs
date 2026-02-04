@@ -99,7 +99,7 @@ endpoint2
   -> Proxy (Record request)
   -> Proxy response
   -> Endpoint2 path (Record request) response
-endpoint2 pathCodec requestType responseType = 
+endpoint2 pathCodec requestType responseType =
   Endpoint2
     { pathCodec
     , requestType
