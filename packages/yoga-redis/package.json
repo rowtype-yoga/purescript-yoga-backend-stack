@@ -1,0 +1,27 @@
+{
+  "name": "purescript-yoga-redis",
+  "version": "0.1.0",
+  "description": "PureScript FFI bindings for Redis using ioredis",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rowtype-yoga/purescript-yoga-bindings.git",
+    "directory": "packages/yoga-redis"
+  },
+  "keywords": [
+    "purescript",
+    "redis",
+    "ioredis",
+    "ffi",
+    "bindings",
+    "yoga"
+  ],
+  "scripts": {
+    "test": "spago test",
+    "test:bash": "./test-with-docker.sh",
+    "test:ts": "bun run test-with-docker.ts"
+  },
+  "dependencies": {
+    "ioredis": "^5.3.0"
+  }
+}

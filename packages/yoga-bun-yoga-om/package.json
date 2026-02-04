@@ -1,0 +1,12 @@
+{
+  "name": "purescript-yoga-bun-yoga-om",
+  "version": "0.1.0",
+  "description": "Om-wrapped Bun Yoga operations",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rowtype-yoga/purescript-yoga-bindings.git",
+    "directory": "packages/yoga-bun-yoga-om"
+  },
+  "keywords": ["purescript", "ffi", "bindings", "yoga"]
+}

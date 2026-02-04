@@ -1,0 +1,19 @@
+{
+  "name": "purescript-yoga-postgres-om",
+  "version": "0.1.0",
+  "description": "Om-wrapped PostgreSQL operations for PureScript",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rowtype-yoga/purescript-yoga-bindings.git",
+    "directory": "packages/yoga-postgres-om"
+  },
+  "keywords": [
+    "purescript",
+    "postgres",
+    "postgresql",
+    "om",
+    "effect-system",
+    "yoga"
+  ]
+}

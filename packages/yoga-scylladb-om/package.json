@@ -1,0 +1,12 @@
+{
+  "name": "purescript-yoga-scylladb-om",
+  "version": "0.1.0",
+  "description": "Om-wrapped ScyllaDB operations",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rowtype-yoga/purescript-yoga-bindings.git",
+    "directory": "packages/yoga-scylladb-om"
+  },
+  "keywords": ["purescript", "ffi", "bindings", "yoga"]
+}

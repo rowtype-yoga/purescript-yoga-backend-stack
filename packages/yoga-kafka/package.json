@@ -1,0 +1,12 @@
+{
+  "name": "purescript-yoga-kafka",
+  "version": "0.1.0",
+  "description": "PureScript FFI bindings for Apache Kafka",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rowtype-yoga/purescript-yoga-bindings.git",
+    "directory": "packages/yoga-kafka"
+  },
+  "keywords": ["purescript", "ffi", "bindings", "yoga"]
+}

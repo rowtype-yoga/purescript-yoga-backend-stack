@@ -1,0 +1,6 @@
+{
+  "name": "yoga-redis-tests",
+  "type": "module",
+  "dependencies": { "ioredis": "^5.3.2" },
+  "scripts": { "test": "spago test" }
+}

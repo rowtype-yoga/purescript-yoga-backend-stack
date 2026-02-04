@@ -1,0 +1,19 @@
+{
+  "name": "purescript-yoga-sql-types",
+  "version": "0.1.0",
+  "description": "Type-safe SQL query builder and typed query support for PureScript",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rowtype-yoga/purescript-yoga-bindings.git",
+    "directory": "packages/yoga-sql-types"
+  },
+  "keywords": [
+    "purescript",
+    "sql",
+    "types",
+    "query-builder",
+    "typed-queries",
+    "yoga"
+  ]
+}
