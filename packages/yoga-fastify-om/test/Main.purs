@@ -14,10 +14,6 @@ import Test.Spec (describe, it)
 import Test.Spec.Assertions (shouldEqual, shouldSatisfy)
 import Test.Spec.Reporter.Console (consoleReporter)
 import Test.Spec.Runner (runSpec)
-import Test.Yoga.Fastify.Om.EndpointSpec as EndpointSpec
--- import Test.Yoga.Fastify.Om.Endpoint2Spec as Endpoint2Spec -- TODO: Update for record-based API
--- import Test.Yoga.Fastify.Om.Endpoint2IntegrationSpec as Endpoint2IntegrationSpec -- TODO: Update for record-based API
--- import Test.Yoga.Fastify.Om.RequestBodySpec as RequestBodySpec -- TODO: Update for Response API
 import Test.Yoga.Fastify.Om.RouterSpec as RouterSpec
 import Type.Proxy (Proxy(..))
 import Yoga.Fastify.Fastify (FastifyReply, StatusCode(..))
@@ -27,20 +23,8 @@ import Yoga.Om as Om
 
 main :: Effect Unit
 main = launchAff_ $ runSpec [ consoleReporter ] do
-  -- routing-duplex Integration tests
+  -- routing-duplex integration tests
   RouterSpec.spec
-
-  -- Tapir-style Endpoint examples and tests
-  EndpointSpec.spec
-
-  -- Endpoint2 Record-Based examples and tests
-  -- Endpoint2Spec.spec -- TODO: Update for record-based API
-
-  -- Endpoint2 REAL Integration tests (proof it works!)
-  -- Endpoint2IntegrationSpec.spec -- TODO: Update for record-based API
-
-  -- RequestBody ADT tests (JSON, Form, Text, Bytes, NoBody)
-  -- RequestBodySpec.spec -- TODO: Update for Response API
 
   describe "Yoga.Fastify.Om" do
 

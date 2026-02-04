@@ -1,10 +1,10 @@
 module Test.Yoga.Fastify.Om.ResponseHeadersExample where
 
 {-
-  Endpoint2 Response API Examples
-  ===============================
+  Endpoint Response API Examples
+  ==============================
 
-  This test file demonstrates the Endpoint2 API with:
+  This test file demonstrates the Endpoint API with:
   - Type-safe response headers (homogeneous records, all String values)
   - Real HTTP header names using quotes: { "Content-Type": "...", "X-Request-Id": "..." }
   - Status code control
@@ -31,7 +31,7 @@ import Routing.Duplex as RD
 import Routing.Duplex.Generic as RG
 import Routing.Duplex.Generic.Syntax ((/))
 import Type.Proxy (Proxy(..))
-import Yoga.Fastify.Om.Endpoint2 as E2
+import Yoga.Fastify.Om.Endpoint as E
 import Yoga.Fastify.Om.RequestBody (RequestBody(..))
 import Yoga.JSON (class ReadForeign, class WriteForeign)
 
@@ -69,11 +69,11 @@ type AppContext = ()
 
 type CreateUserRequest = { body :: RequestBody CreateUserReq }
 
-createUserEndpoint :: E2.Endpoint2 ApiRoute CreateUserRequest User
-createUserEndpoint = E2.endpoint2 apiRoute (Proxy :: _ CreateUserRequest) (Proxy :: _ User)
+createUserEndpoint :: E.Endpoint ApiRoute CreateUserRequest User
+createUserEndpoint = E.endpoint apiRoute (Proxy :: _ CreateUserRequest) (Proxy :: _ User)
 
 createUserHandler
-  :: E2.EndpointHandler2
+  :: E.EndpointHandler
        ApiRoute
        CreateUserRequest
        () -- No custom headers
@@ -83,12 +83,12 @@ createUserHandler
 createUserHandler { path, request } =
   case path, request.body of
     CreateUser, JSONBody { name, email } -> pure
-      { status: E2.StatusCode 201
+      { status: E.StatusCode 201
       , headers: {} -- Empty headers record
       , body: { id: 1, name, email }
       }
     _, _ -> pure
-      { status: E2.StatusCode 400
+      { status: E.StatusCode 400
       , headers: {}
       , body: { id: 0, name: "error", email: "error" }
       }
@@ -98,7 +98,7 @@ createUserHandler { path, request } =
 -- ============================================================================
 
 createUserWithHeadersHandler
-  :: E2.EndpointHandler2
+  :: E.EndpointHandler
        ApiRoute
        CreateUserRequest
        ( "Location" :: String
@@ -112,7 +112,7 @@ createUserWithHeadersHandler { path, request } =
     CreateUser, JSONBody { name, email } -> do
       let userId = 123
       pure
-        { status: E2.StatusCode 201
+        { status: E.StatusCode 201
         , headers:
             { "Location": "/users/" <> show userId
             , "X-Request-Id": "req-abc-123"
@@ -120,7 +120,7 @@ createUserWithHeadersHandler { path, request } =
         , body: { id: userId, name, email }
         }
     _, _ -> pure
-      { status: E2.StatusCode 400
+      { status: E.StatusCode 400
       , headers:
           { "Location": ""
           , "X-Request-Id": "req-error"
@@ -133,7 +133,7 @@ createUserWithHeadersHandler { path, request } =
 -- ============================================================================
 
 createUserWithManyHeadersHandler
-  :: E2.EndpointHandler2
+  :: E.EndpointHandler
        ApiRoute
        CreateUserRequest
        ( "Location" :: String
@@ -149,7 +149,7 @@ createUserWithManyHeadersHandler { path, request } =
     CreateUser, JSONBody { name, email } -> do
       let userId = 123
       pure
-        { status: E2.StatusCode 201
+        { status: E.StatusCode 201
         , headers:
             { "Location": "/users/" <> show userId
             , "X-Request-Id": "req-abc-123"
@@ -159,7 +159,7 @@ createUserWithManyHeadersHandler { path, request } =
         , body: { id: userId, name, email }
         }
     _, _ -> pure
-      { status: E2.StatusCode 400
+      { status: E.StatusCode 400
       , headers:
           { "Location": ""
           , "X-Request-Id": "req-error"
@@ -174,7 +174,7 @@ createUserWithManyHeadersHandler { path, request } =
 -- ============================================================================
 
 getUserHandler
-  :: E2.EndpointHandler2
+  :: E.EndpointHandler
        ApiRoute
        { body :: RequestBody Unit }
        ()
@@ -186,12 +186,12 @@ getUserHandler { path } =
     GetUser ->
       -- Found
       pure
-        { status: E2.StatusCode 200
+        { status: E.StatusCode 200
         , headers: {}
         , body: { id: 1, name: "Alice", email: "alice@example.com" }
         }
     _ -> pure
-      { status: E2.StatusCode 400
+      { status: E.StatusCode 400
       , headers: {}
       , body: { id: 0, name: "Bad Request", email: "" }
       }
