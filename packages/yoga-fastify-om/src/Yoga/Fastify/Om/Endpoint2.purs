@@ -2,20 +2,14 @@ module Yoga.Fastify.Om.Endpoint2
   ( -- * Endpoint Specification
     Endpoint2
   , endpoint2
-  -- * Parsed Endpoint Data
-  , EndpointData2
   -- * Endpoint Handler
   , EndpointHandler2
   , handleEndpoint2
+  -- * Defaults
+  , EndpointDefaults
   -- * Parsing Typeclasses
-  , class ParseRequestSpec
-  , parseRequestSpec
-  , class ParseQueryField
-  , parseQueryField
-  , class ParseHeadersField
-  , parseHeadersField
-  , class ParseBodyField
-  , parseBodyField
+  , class ParseRequest
+  , parseRequest
   -- * Re-exports
   , module Routing.Duplex
   , module Yoga.Fastify.Om.RequestBody
@@ -31,7 +25,7 @@ import Effect.Class (liftEffect)
 import Foreign (Foreign, unsafeToForeign)
 import Foreign.Object (Object)
 import Foreign.Object as Object
-import Prim.Row (class Cons, class Lacks, class Union)
+import Prim.Row (class Cons, class Lacks, class Union, class Nub)
 import Prim.RowList (class RowToList, RowList)
 import Prim.RowList as RL
 import Record as Record
@@ -42,8 +36,7 @@ import Unsafe.Coerce (unsafeCoerce)
 import Yoga.Fastify.Fastify (FastifyReply, RouteURL(..), StatusCode(..))
 import Yoga.Fastify.Fastify as F
 import Yoga.Fastify.Om as FO
-import Yoga.Fastify.Om.RequestBody (RequestBody(..), class ParseRequestBody, parseRequestBody)
-import Yoga.Fastify.Om.RequestBody as RequestBody
+import Yoga.Fastify.Om.RequestBody (RequestBody(..))
 import Yoga.JSON (class ReadForeign, class WriteForeign, read, writeImpl)
 import Yoga.Om as Om
 
@@ -51,135 +44,128 @@ import Yoga.Om as Om
 -- Endpoint Specification
 --------------------------------------------------------------------------------
 
--- | Complete typed endpoint specification with record-based request spec
--- |
--- | Example:
--- |   type UserRequestSpec =
--- |     ( query :: { page :: Int, limit :: Maybe Int }
--- |     , headers :: { authorization :: String }
--- |     , body :: CreateUserRequest
--- |     )
--- |   
--- |   type UserEndpoint = Endpoint2 UserRoute UserRequestSpec UserResponse
--- |
--- | Note: Omit fields entirely from the spec to use defaults (empty records/Unit)
-data Endpoint2 path requestSpec response = Endpoint2
+-- | Complete typed endpoint specification with record-based request
+data Endpoint2 path request response = Endpoint2
   { pathCodec :: RouteDuplex' path
-  , requestSpec :: Proxy requestSpec
+  , requestType :: Proxy request
   , responseType :: Proxy response
   }
 
+-- | Default values for omitted request fields (row type for Union)
+type EndpointDefaults =
+  ( query :: Record ()
+  , headers :: Record ()
+  , body :: RequestBody Unit
+  )
+
 -- | Build an endpoint specification
+-- | 
+-- | Note: Request must be a complete record type. Use EndpointDefaults as a guide:
+-- |   type MyRequest = { query :: {...}, headers :: {...}, body :: RequestBody SomeType }
 -- |
--- | Example:
--- |   userEndpoint :: Endpoint2 UserRoute UserRequestSpec UserResponse
--- |   userEndpoint = endpoint2 userRoute (Proxy :: Proxy UserRequestSpec) (Proxy :: Proxy UserResponse)
+-- | TODO: Add Union constraint for field omission (blocked by overlapping field issue)
 endpoint2
-  :: forall path requestSpec response
+  :: forall path request response
    . RouteDuplex' path
-  -> Proxy requestSpec
+  -> Proxy (Record request)
   -> Proxy response
-  -> Endpoint2 path requestSpec response
-endpoint2 pathCodec requestSpec responseType = Endpoint2
+  -> Endpoint2 path (Record request) response
+endpoint2 pathCodec requestType responseType = Endpoint2
   { pathCodec
-  , requestSpec
+  , requestType
   , responseType
   }
 
 --------------------------------------------------------------------------------
--- Parsed Endpoint Data
+-- Endpoint Handler
 --------------------------------------------------------------------------------
 
--- | Result of parsing an endpoint - all components extracted and typed
-type EndpointData2 path query headers body =
+-- | Handler that receives path and fully parsed request record
+type EndpointHandler2 path request response ctx err =
   { path :: path
-  , query :: Record query
-  , headers :: Record headers
-  , body :: body
-  }
-
--- | Handler that receives fully parsed endpoint data and returns a response
-type EndpointHandler2 path query headers body response ctx err =
-  EndpointData2 path query headers body
-  -> Om.Om { httpRequest :: FO.RequestContext | ctx } err response
+  , request :: request
+  } -> Om.Om { httpRequest :: FO.RequestContext | ctx } err response
 
 --------------------------------------------------------------------------------
 -- Parsing Typeclasses
 --------------------------------------------------------------------------------
 
--- | Parse entire request spec from row list
--- | Note: specBody is the type in the spec (e.g. RequestBody a), handlerBody is what handler receives (e.g. a)
-class ParseRequestSpec (rl :: RowList Type) (query :: Row Type) (headers :: Row Type) (specBody :: Type) (handlerBody :: Type) 
-  | rl -> query headers specBody handlerBody where
-  parseRequestSpec
+-- | Parse a request record from raw HTTP data using RowList
+class ParseRequest (r :: Row Type) where
+  parseRequest
+    :: Object Foreign  -- query params
+    -> Object String   -- headers
+    -> Maybe Foreign   -- body
+    -> Either String (Record r)
+
+instance
+  ( RowToList r rl
+  , ParseRequestRL rl r
+  ) =>
+  ParseRequest r where
+  parseRequest = parseRequestRL (Proxy :: Proxy rl)
+
+-- | Helper class that works with RowList
+class ParseRequestRL (rl :: RowList Type) (r :: Row Type) | rl -> r where
+  parseRequestRL
     :: Proxy rl
-    -> Object Foreign -- query params
-    -> Object String -- headers
-    -> Maybe Foreign -- body
-    -> Either String { query :: Record query, headers :: Record headers, body :: handlerBody }
+    -> Object Foreign
+    -> Object String
+    -> Maybe Foreign
+    -> Either String (Record r)
 
--- Base case: empty spec defaults to empty records and Unit
-instance ParseRequestSpec RL.Nil () () Unit Unit where
-  parseRequestSpec _ _ _ _ = Right { query: {}, headers: {}, body: unit }
+-- Base case: empty record
+instance ParseRequestRL RL.Nil () where
+  parseRequestRL _ _ _ _ = Right {}
 
--- When we have a "query" field in the spec
+-- Query field
 instance
-  ( IsSymbol "query"
-  , RowToList queryRow queryRowList
+  ( RowToList queryRow queryRowList
   , ParseQueryFieldRecord queryRowList queryRow
-  , ParseRequestSpec tail () tailHeaders tailSpecBody tailHandlerBody
-  , Cons "query" (Record queryRow) tail' requestSpec
+  , ParseRequestRL tail tailRow
+  , Lacks "query" tailRow
   ) =>
-  ParseRequestSpec (RL.Cons "query" (Record queryRow) tail) queryRow tailHeaders tailSpecBody tailHandlerBody where
-  parseRequestSpec _ queryObj headersObj bodyObj = do
+  ParseRequestRL (RL.Cons "query" (Record queryRow) tail) ( query :: Record queryRow | tailRow ) where
+  parseRequestRL _ queryObj headersObj bodyObj = do
     query <- parseQueryFieldRecord (Proxy :: Proxy queryRowList) queryObj
-    rest <- parseRequestSpec (Proxy :: Proxy tail) queryObj headersObj bodyObj
-    Right { query, headers: rest.headers, body: rest.body }
+    rest <- parseRequestRL (Proxy :: Proxy tail) queryObj headersObj bodyObj
+    pure $ Record.insert (Proxy :: Proxy "query") query rest
 
--- When we have a "headers" field in the spec
+-- Headers field
 instance
-  ( IsSymbol "headers"
-  , RowToList headersRow headersRowList
+  ( RowToList headersRow headersRowList
   , ParseHeadersFieldRecord headersRowList headersRow
-  , ParseRequestSpec tail tailQuery () tailSpecBody tailHandlerBody
-  , Cons "headers" (Record headersRow) tail' requestSpec
+  , ParseRequestRL tail tailRow
+  , Lacks "headers" tailRow
   ) =>
-  ParseRequestSpec (RL.Cons "headers" (Record headersRow) tail) tailQuery headersRow tailSpecBody tailHandlerBody where
-  parseRequestSpec _ queryObj headersObj bodyObj = do
+  ParseRequestRL (RL.Cons "headers" (Record headersRow) tail) ( headers :: Record headersRow | tailRow ) where
+  parseRequestRL _ queryObj headersObj bodyObj = do
     headers <- parseHeadersFieldRecord (Proxy :: Proxy headersRowList) headersObj
-    rest <- parseRequestSpec (Proxy :: Proxy tail) queryObj headersObj bodyObj
-    Right { query: rest.query, headers, body: rest.body }
+    rest <- parseRequestRL (Proxy :: Proxy tail) queryObj headersObj bodyObj
+    pure $ Record.insert (Proxy :: Proxy "headers") headers rest
 
--- When we have a "body" field in the spec
+-- Body field
 instance
-  ( IsSymbol "body"
-  , ParseBodyField specBody handlerBody
-  , ParseRequestSpec tail tailQuery tailHeaders Unit Unit
-  , Cons "body" specBody tail' requestSpec
+  ( ParseBodyField bodyType
+  , ParseRequestRL tail tailRow
+  , Lacks "body" tailRow
   ) =>
-  ParseRequestSpec (RL.Cons "body" specBody tail) tailQuery tailHeaders specBody handlerBody where
-  parseRequestSpec _ queryObj headersObj bodyObj = do
-    body <- parseBodyField (Proxy :: Proxy specBody) headersObj bodyObj
-    rest <- parseRequestSpec (Proxy :: Proxy tail) queryObj headersObj bodyObj
-    Right { query: rest.query, headers: rest.headers, body }
+  ParseRequestRL (RL.Cons "body" bodyType tail) ( body :: bodyType | tailRow ) where
+  parseRequestRL _ queryObj headersObj bodyObj = do
+    body <- parseBodyField (Proxy :: Proxy bodyType) headersObj bodyObj
+    rest <- parseRequestRL (Proxy :: Proxy tail) queryObj headersObj bodyObj
+    pure $ Record.insert (Proxy :: Proxy "body") body rest
 
--- | Parse query field - a record with Maybe-wrapped optional fields
-class ParseQueryField (ty :: Type) where
-  parseQueryField :: Proxy ty -> Object Foreign -> Either String ty
+--------------------------------------------------------------------------------
+-- Query Parsing
+--------------------------------------------------------------------------------
 
--- Record instance - delegate to ParseQueryFieldRecord (handles empty records via RL.Nil)
-instance (RowToList r rl, ParseQueryFieldRecord rl r) => ParseQueryField (Record r) where
-  parseQueryField _ = parseQueryFieldRecord (Proxy :: Proxy rl)
-
--- | Parse a query record field by field
--- | Uses a typeclass to distinguish required from optional (Maybe-wrapped) fields
 class ParseQueryFieldRecord (rl :: RowList Type) (r :: Row Type) | rl -> r where
   parseQueryFieldRecord :: Proxy rl -> Object Foreign -> Either String (Record r)
 
 instance ParseQueryFieldRecord RL.Nil () where
   parseQueryFieldRecord _ _ = Right {}
 
--- Instance for any field - delegate to ParseQueryFieldValue to handle Maybe/non-Maybe
 instance
   ( IsSymbol name
   , ParseQueryFieldValue ty
@@ -188,62 +174,45 @@ instance
   , Lacks name tailRow
   ) =>
   ParseQueryFieldRecord (RL.Cons name ty tail) r where
-  parseQueryFieldRecord _ queryObj =
+  parseQueryFieldRecord _ queryObj = do
     let
       key = Proxy :: Proxy name
       keyName = reflectSymbol key
-      valueResult = parseQueryFieldValue (Proxy :: Proxy ty) keyName queryObj
-      restResult = parseQueryFieldRecord (Proxy :: Proxy tail) queryObj
-    in
-      case valueResult, restResult of
-        Right value, Right rest -> Right (Record.insert key value rest)
-        Left err, _ -> Left err
-        _, Left err -> Left err
+    value <- parseQueryFieldValue (Proxy :: Proxy ty) keyName queryObj
+    rest <- parseQueryFieldRecord (Proxy :: Proxy tail) queryObj
+    pure $ Record.insert key value rest
 
--- | Parse a single query field value
 class ParseQueryFieldValue (ty :: Type) where
   parseQueryFieldValue :: Proxy ty -> String -> Object Foreign -> Either String ty
 
--- Optional field (Maybe type) - checked first
 instance (FO.ParseParam inner) => ParseQueryFieldValue (Maybe inner) where
   parseQueryFieldValue _ keyName queryObj =
     Right $ case Object.lookup keyName queryObj of
       Nothing -> Nothing
       Just foreignVal ->
-        let
-          valueStr = unsafeCoerce foreignVal :: String
-        in
-          FO.parseParam valueStr
--- Required field (non-Maybe type) - fallback
+        let valueStr = unsafeCoerce foreignVal :: String
+        in FO.parseParam valueStr
+
 else instance (FO.ParseParam ty) => ParseQueryFieldValue ty where
   parseQueryFieldValue _ keyName queryObj =
     case Object.lookup keyName queryObj of
       Nothing -> Left $ "Missing required query parameter: " <> keyName
       Just foreignVal ->
-        let
-          valueStr = unsafeCoerce foreignVal :: String
-        in
-          case FO.parseParam valueStr of
-            Nothing -> Left $ "Invalid query parameter: " <> keyName
-            Just value -> Right value
+        let valueStr = unsafeCoerce foreignVal :: String
+        in case FO.parseParam valueStr of
+          Nothing -> Left $ "Invalid query parameter: " <> keyName
+          Just value -> Right value
 
--- | Parse headers field - a record with Maybe-wrapped optional fields
-class ParseHeadersField (ty :: Type) where
-  parseHeadersField :: Proxy ty -> Object String -> Either String ty
+--------------------------------------------------------------------------------
+-- Headers Parsing
+--------------------------------------------------------------------------------
 
--- Record instance - delegate to ParseHeadersFieldRecord (handles empty records via RL.Nil)
-instance (RowToList r rl, ParseHeadersFieldRecord rl r) => ParseHeadersField (Record r) where
-  parseHeadersField _ = parseHeadersFieldRecord (Proxy :: Proxy rl)
-
--- | Parse a headers record field by field
--- | Uses a typeclass to distinguish required from optional (Maybe-wrapped) fields
 class ParseHeadersFieldRecord (rl :: RowList Type) (r :: Row Type) | rl -> r where
   parseHeadersFieldRecord :: Proxy rl -> Object String -> Either String (Record r)
 
 instance ParseHeadersFieldRecord RL.Nil () where
   parseHeadersFieldRecord _ _ = Right {}
 
--- Instance for any field - delegate to ParseHeaderFieldValue to handle Maybe/non-Maybe
 instance
   ( IsSymbol name
   , ParseHeaderFieldValue ty
@@ -252,75 +221,70 @@ instance
   , Lacks name tailRow
   ) =>
   ParseHeadersFieldRecord (RL.Cons name ty tail) r where
-  parseHeadersFieldRecord _ headersObj =
+  parseHeadersFieldRecord _ headersObj = do
     let
       key = Proxy :: Proxy name
       keyName = reflectSymbol key
-      valueResult = parseHeaderFieldValue (Proxy :: Proxy ty) keyName headersObj
-      restResult = parseHeadersFieldRecord (Proxy :: Proxy tail) headersObj
-    in
-      case valueResult, restResult of
-        Right value, Right rest -> Right (Record.insert key value rest)
-        Left err, _ -> Left err
-        _, Left err -> Left err
+    value <- parseHeaderFieldValue (Proxy :: Proxy ty) keyName headersObj
+    rest <- parseHeadersFieldRecord (Proxy :: Proxy tail) headersObj
+    pure $ Record.insert key value rest
 
--- | Parse a single header field value
 class ParseHeaderFieldValue (ty :: Type) where
   parseHeaderFieldValue :: Proxy ty -> String -> Object String -> Either String ty
 
--- Optional header (Maybe String) - checked first
 instance ParseHeaderFieldValue (Maybe String) where
   parseHeaderFieldValue _ keyName headersObj =
     Right $ Object.lookup keyName headersObj
--- Required header (String) - fallback
+
 else instance ParseHeaderFieldValue String where
   parseHeaderFieldValue _ keyName headersObj =
     case Object.lookup keyName headersObj of
       Nothing -> Left $ "Missing required header: " <> keyName
       Just value -> Right value
 
--- | Parse body field
--- |
--- | For RequestBody types, this unwraps the wrapper and returns the inner value:
--- | - RequestBody CreateUserRequest → returns CreateUserRequest
--- | - RequestBody Unit → returns Unit
-class ParseBodyField (specTy :: Type) (handlerTy :: Type) | specTy -> handlerTy where
-  parseBodyField :: Proxy specTy -> Object String -> Maybe Foreign -> Either String handlerTy
+--------------------------------------------------------------------------------
+-- Body Parsing
+--------------------------------------------------------------------------------
 
--- Unit instance for no body - checked first
-instance ParseBodyField Unit Unit where
-  parseBodyField _ _ _ = Right unit
--- RequestBody instance - unwraps to inner value
-else instance ParseRequestBody a => ParseBodyField (RequestBody a) a where
-  parseBodyField _ headers bodyMaybe = parseRequestBody headers bodyMaybe
--- ReadForeign instance for direct body parsing - fallback
-else instance ReadForeign ty => ParseBodyField ty ty where
-  parseBodyField _ _ Nothing = Left "Request body is required"
-  parseBodyField _ _ (Just foreignBody) =
-    case read foreignBody of
-      Left err -> Left $ "Invalid request body: " <> show err
-      Right parsed -> Right parsed
+-- | Parse body into RequestBody variant (keeps wrapper)
+class ParseBodyField (ty :: Type) where
+  parseBodyField :: Proxy ty -> Object String -> Maybe Foreign -> Either String ty
+
+-- RequestBody Unit -> NoBody
+instance ParseBodyField (RequestBody Unit) where
+  parseBodyField _ _ _ = Right NoBody
+
+-- RequestBody a -> JSONBody a (parse via ReadForeign)
+else instance ReadForeign a => ParseBodyField (RequestBody a) where
+  parseBodyField _ headers bodyMaybe =
+    case bodyMaybe of
+      Nothing -> Right NoBody
+      Just foreignBody ->
+        case Object.lookup "content-type" headers of
+          Just contentType
+            | contentType == "application/json" || contentType == "application/json; charset=utf-8" ->
+                case read foreignBody of
+                  Left err -> Left $ "Invalid JSON body: " <> show err
+                  Right parsed -> Right (JSONBody parsed)
+            | otherwise ->
+                Left $ "Unsupported Content-Type: " <> contentType
+          Nothing ->
+            -- Try to parse as JSON by default
+            case read foreignBody of
+              Left err -> Left $ "Invalid JSON body (no Content-Type header): " <> show err
+              Right parsed -> Right (JSONBody parsed)
 
 --------------------------------------------------------------------------------
 -- Endpoint Handler Execution
 --------------------------------------------------------------------------------
 
 -- | Execute an endpoint handler with automatic parsing and response sending
--- |
--- | Example:
--- |   FO.postOm (RouteURL "/users") (handleEndpoint2 userEndpoint handler) app
--- |   
--- |   where
--- |     handler { path, query, headers, body } = do
--- |       -- All fields are type-safe and parsed!
--- |       pure response
 handleEndpoint2
-  :: forall path requestSpec requestSpecList query headers specBody handlerBody response ctx err
-   . RowToList requestSpec requestSpecList
-  => ParseRequestSpec requestSpecList query headers specBody handlerBody
+  :: forall path request response ctx err
+   . ParseRequest request
   => WriteForeign response
-  => Endpoint2 path requestSpec response
-  -> EndpointHandler2 path query headers handlerBody response ctx err
+  => Endpoint2 path (Record request) response
+  -> EndpointHandler2 path (Record request) response ctx err
   -> FastifyReply
   -> Om.Om { httpRequest :: FO.RequestContext | ctx } err Unit
 handleEndpoint2 (Endpoint2 spec) handler reply = do
@@ -339,24 +303,15 @@ handleEndpoint2 (Endpoint2 spec) handler reply = do
       void $ FO.send (unsafeToForeign "Not found") reply
 
     Right path -> do
-      -- Parse request spec (query, headers, body)
-      case parseRequestSpec (Proxy :: Proxy requestSpecList) queryObj headersObj bodyObj of
+      -- Parse request record
+      case parseRequest queryObj headersObj bodyObj of
         Left parseError -> do
           void $ liftEffect $ F.status (StatusCode 400) reply
           void $ FO.send (unsafeToForeign parseError) reply
 
-        Right parsed -> do
-          -- Call handler with fully parsed data
-          let
-            endpointData =
-              { path
-              , query: parsed.query
-              , headers: parsed.headers
-              , body: parsed.body
-              }
-
-          -- Handler returns response value - we serialize and send it
-          responseValue <- handler endpointData
+        Right request -> do
+          -- Call handler with path and request
+          responseValue <- handler { path, request }
 
           -- Use yoga-json to encode response
           let encodedResponse = writeImpl responseValue
