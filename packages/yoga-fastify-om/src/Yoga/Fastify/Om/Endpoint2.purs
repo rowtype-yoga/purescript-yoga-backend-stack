@@ -5,6 +5,7 @@ module Yoga.Fastify.Om.Endpoint2
   -- * Endpoint Handler
   , EndpointHandler2
   , handleEndpoint2
+  , coerceHandler
   -- * Request Types
   , OptsR
   , OptsOpt
@@ -79,21 +80,13 @@ type EndpointDefaults =
   , body :: RequestBody Unit
   )
 
--- | Build an endpoint specification with field omission via unsafeCoerce
+-- | Build an endpoint specification
 -- |
--- | Accepts partial records (e.g. just `{ body :: ... }`).
--- | At runtime, we unsafeCoerce to add missing fields.
--- | Missing fields become `undefined` in JS, parsers provide defaults.
+-- | Accepts a request type that will be parsed and passed to the handler.
+-- | The request must have query, headers, and/or body fields.
 -- |
--- | The handler receives a record with all three fields:
--- |   - query :: Record () (or user-specified type)
--- |   - headers :: Record () (or user-specified type)
--- |   - body :: RequestBody a (or user-specified type)
--- |
--- | Example:
--- |   type UserInput = { body :: RequestBody CreateUser }
--- |   endpoint2 apiRoute (Proxy :: _ UserInput) responseProxy
--- |   -- Handler gets: { query :: Record (), headers :: Record (), body :: RequestBody CreateUser }
+-- | At JS runtime: { body: x } === { body: x, query: undefined, headers: undefined }
+-- | Missing fields become `undefined`, which parsers handle as empty/default values.
 endpoint2
   :: forall path request response
    . RouteDuplex' path
@@ -315,6 +308,14 @@ else instance ReadForeign a => ParseBodyField (RequestBody a) where
 --------------------------------------------------------------------------------
 -- Endpoint Handler Execution
 --------------------------------------------------------------------------------
+
+-- | Coerce handler from full request type to partial request type
+-- | Safe because at JS runtime: { body: x } === { body: x, query: undefined, headers: undefined }
+coerceHandler
+  :: forall path partial full response ctx err
+   . EndpointHandler2 path (Record full) response ctx err
+  -> EndpointHandler2 path (Record partial) response ctx err
+coerceHandler = unsafeCoerce
 
 -- | Execute an endpoint handler with automatic parsing and response sending
 handleEndpoint2

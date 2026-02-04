@@ -85,29 +85,42 @@ createUserJSONHandler { path, request } =
       pure { id: 0, name: "error", email: "wrong endpoint" }
 
 -- ============================================================================
--- EXAMPLE 2: NoBody - GET Request (No Body)
+-- EXAMPLE 2: NoBody - GET Request with Field Omission
 -- ============================================================================
 
-type GetUsersRequest = { body :: RequestBody Unit }  -- Just body with NoBody
+-- User only specifies body - but at JS runtime, query and headers are `undefined`
+type GetUsersRequest = { body :: RequestBody Unit }
+
+-- Handler can receive full type with all fields
+type GetUsersRequestFull = { query :: Record (), headers :: Record (), body :: RequestBody Unit }
 
 getUsersEndpoint :: E2.Endpoint2 ApiRoute GetUsersRequest (Array User)
-getUsersEndpoint = E2.endpoint2 apiRoute (Proxy :: Proxy { body :: RequestBody Unit }) (Proxy :: Proxy (Array User))
+getUsersEndpoint = E2.endpoint2 apiRoute (Proxy :: Proxy GetUsersRequest) (Proxy :: Proxy (Array User))
 
-getUsersHandler
+-- Handler written with full type (all three fields)
+getUsersHandlerFull
   :: E2.EndpointHandler2
        ApiRoute
-       GetUsersRequest
+       GetUsersRequestFull
        (Array User)
        AppContext
        ()
-getUsersHandler { path, request } =
+getUsersHandlerFull { path, request } =
   case path, request.body of
-    GetUsers, NoBody ->
+    GetUsers, NoBody -> do
+      -- Can access query and headers even though GetUsersRequest only had body!
+      -- At JS runtime: { body: x } === { body: x, query: undefined, headers: undefined }
+      let _ = request.query    -- Record () (parsed from undefined)
+      let _ = request.headers  -- Record () (parsed from undefined)
       pure
         [ { id: 1, name: "Alice", email: "alice@example.com" }
         , { id: 2, name: "Bob", email: "bob@example.com" }
         ]
     _, _ -> pure []
+
+-- Coerce handler from full type to partial type (safe because JS runtime equivalence)
+getUsersHandler :: E2.EndpointHandler2 ApiRoute GetUsersRequest (Array User) AppContext ()
+getUsersHandler = E2.coerceHandler getUsersHandlerFull
 
 -- ============================================================================
 -- EXAMPLE 3: Query + Body
@@ -131,8 +144,9 @@ createUserWithQueryHandler
 createUserWithQueryHandler { path, request } =
   case path, request.body of
     CreateUserJSON, JSONBody createReq -> do
-      let { name, email } = createReq
-          { notify, source } = request.query
+      let
+        { name, email } = createReq
+        { notify, source } = request.query
       pure
         { id: if notify then 2 else 3
         , name: name <> maybe "" (\s -> " from " <> s) source
@@ -162,9 +176,10 @@ createUserWithHeadersHandler
 createUserWithHeadersHandler { path, request } =
   case path, request.body of
     CreateUserJSON, JSONBody createReq -> do
-      let { name, email } = createReq
-          { authorization, xRequestId } = request.headers
-          verified = authorization == "Bearer valid-token"
+      let
+        { name, email } = createReq
+        { authorization, xRequestId } = request.headers
+        verified = authorization == "Bearer valid-token"
       pure
         { id: if verified then 4 else 5
         , name: name <> maybe "" (\rid -> " [" <> rid <> "]") xRequestId
@@ -195,10 +210,11 @@ fullRequestHandler
 fullRequestHandler { path, request } =
   case path, request.body of
     CreateUserJSON, JSONBody createReq -> do
-      let { name, email } = createReq
-          { notify } = request.query
-          { authorization } = request.headers
-          verified = authorization == "Bearer valid-token"
+      let
+        { name, email } = createReq
+        { notify } = request.query
+        { authorization } = request.headers
+        verified = authorization == "Bearer valid-token"
       pure
         { id: 6
         , name: if notify then name <> " (notified)" else name
@@ -213,13 +229,13 @@ fullRequestHandler { path, request } =
 spec :: Spec Unit
 spec = do
   describe "RequestBody ADT Support (Record-Based)" do
-    
+
     describe "JSONBody" do
-      
+
       it "compiles endpoint with JSONBody type" do
         let _endpoint = createUserJSONEndpoint
         true `shouldEqual` true
-      
+
       it "handler receives wrapped JSONBody" do
         let
           handler { request } = case request.body of
@@ -227,22 +243,24 @@ spec = do
             NoBody -> "no body"
             _ -> "other"
         true `shouldEqual` true
-      
+
       it "extracts typed data from JSONBody via pattern matching" do
         let
           handler { request } = case request.body of
             JSONBody createReq ->
-              let { name, email } = createReq
-              in name <> " " <> email
+              let
+                { name, email } = createReq
+              in
+                name <> " " <> email
             _ -> "error"
         true `shouldEqual` true
-    
+
     describe "NoBody" do
-      
+
       it "GET endpoint with empty request uses NoBody default" do
         let _endpoint = getUsersEndpoint
         true `shouldEqual` true
-      
+
       it "handler receives NoBody in wrapped form" do
         let
           handler { request } = case request.body of
@@ -250,13 +268,13 @@ spec = do
             JSONBody _ -> "has json"
             _ -> "other"
         true `shouldEqual` true
-    
+
     describe "Query + Body" do
-      
+
       it "compiles endpoint with query and body" do
         let _endpoint = createUserWithQueryEndpoint
         true `shouldEqual` true
-      
+
       it "handler can access both query and wrapped body" do
         let
           handler { request } = case request.body of
@@ -264,13 +282,13 @@ spec = do
               user.name <> " has query"
             _ -> "error"
         true `shouldEqual` true
-    
+
     describe "Headers + Body" do
-      
+
       it "compiles endpoint with headers and body" do
         let _endpoint = createUserWithHeadersEndpoint
         true `shouldEqual` true
-      
+
       it "handler can access both headers and wrapped body" do
         let
           handler { request } = case request.body of
@@ -278,49 +296,51 @@ spec = do
               user.name <> " has headers"
             _ -> "error"
         true `shouldEqual` true
-    
+
     describe "Full Request (Query + Headers + Body)" do
-      
+
       it "compiles endpoint with all fields" do
         let _endpoint = fullRequestEndpoint
         true `shouldEqual` true
-      
+
       it "handler can access query, headers, and wrapped body" do
         let
           handler { request } = case request.body of
             JSONBody user ->
-              let { notify } = request.query
-                  { authorization } = request.headers
-                  notifyStr = show (notify :: Boolean)
-              in user.name <> " notify=" <> notifyStr <> " auth=" <> authorization
+              let
+                { notify } = request.query
+                { authorization } = request.headers
+                notifyStr = show (notify :: Boolean)
+              in
+                user.name <> " notify=" <> notifyStr <> " auth=" <> authorization
             _ -> "error"
         true `shouldEqual` true
-    
+
     describe "Field Omission with Union" do
-      
+
       it "empty request {} defaults to query={}, headers={}, body=NoBody" do
         let
           _endpoint :: E2.Endpoint2 ApiRoute {} User
           _endpoint = E2.endpoint2 apiRoute (Proxy :: Proxy {}) (Proxy :: Proxy User)
         true `shouldEqual` true
-      
+
       it "body-only request defaults query and headers" do
         -- Demonstrate that we can omit query and headers
         true `shouldEqual` true
-      
+
       it "query-only request defaults headers and body" do
         -- Demonstrate that we can omit headers and body
         true `shouldEqual` true
-    
+
     describe "Type Safety" do
-      
+
       it "JSONBody is typed with the actual body type" do
         let
           _ensureTyped :: RequestBody CreateUserJSON -> String
           _ensureTyped (JSONBody req) = req.name
           _ensureTyped _ = "other"
         true `shouldEqual` true
-      
+
       it "pattern matching ensures all cases are handled" do
         let
           handler { request } = case request.body of
@@ -330,23 +350,23 @@ spec = do
             TextBody _ -> "text"
             BytesBody _ -> "bytes"
         true `shouldEqual` true
-    
+
     describe "Comparison with Row-Based API" do
-      
+
       it "Before: row types with separate type parameters" do
         -- Old way:
         -- type Spec = ( body :: RequestBody CreateUser )
         -- handler :: EndpointHandler2 path query headers body response ctx err
         let comparison = "Row type vs Record type"
         comparison `shouldEqual` "Row type vs Record type"
-      
+
       it "After: single record parameter" do
         -- New way:
         -- type Request = { body :: JSONBody CreateUser }
         -- handler :: EndpointHandler2 path request response ctx err
         let improvement = "Single record parameter"
         improvement `shouldEqual` "Single record parameter"
-      
+
       it "Body remains wrapped for explicit handling" do
         -- Handler must pattern match on wrapped body
         -- case request.body of
