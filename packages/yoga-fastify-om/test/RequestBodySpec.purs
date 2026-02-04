@@ -110,8 +110,8 @@ getUsersHandlerFull { path, request } =
     GetUsers, NoBody -> do
       -- Can access query and headers even though GetUsersRequest only had body!
       -- At JS runtime: { body: x } === { body: x, query: undefined, headers: undefined }
-      let _ = request.query    -- Record () (parsed from undefined)
-      let _ = request.headers  -- Record () (parsed from undefined)
+      let _ = request.query -- Record () (parsed from undefined)
+      let _ = request.headers -- Record () (parsed from undefined)
       pure
         [ { id: 1, name: "Alice", email: "alice@example.com" }
         , { id: 2, name: "Bob", email: "bob@example.com" }

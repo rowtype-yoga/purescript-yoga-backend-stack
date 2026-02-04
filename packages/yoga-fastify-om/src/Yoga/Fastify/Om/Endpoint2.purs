@@ -80,16 +80,15 @@ type EndpointDefaults =
   , body :: RequestBody Unit
   )
 
--- | Build an endpoint specification
+-- | Build an endpoint specification with Union constraint
 -- |
--- | Accepts a request type that will be parsed and passed to the handler.
--- | The request must have query, headers, and/or body fields.
--- |
+-- | Union ensures the request can be merged with defaults to form a valid full request.
 -- | At JS runtime: { body: x } === { body: x, query: undefined, headers: undefined }
--- | Missing fields become `undefined`, which parsers handle as empty/default values.
+-- | Use coerceHandler to convert handlers from full to partial types.
 endpoint2
-  :: forall path request response
-   . RouteDuplex' path
+  :: forall path request o_ query headers body response
+   . Union request o_ (query :: query, headers :: headers, body :: body)
+  => RouteDuplex' path
   -> Proxy (Record request)
   -> Proxy response
   -> Endpoint2 path (Record request) response
