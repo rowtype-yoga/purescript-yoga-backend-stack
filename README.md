@@ -39,75 +39,39 @@ High-quality, type-safe PureScript FFI bindings for databases, messaging, HTTP f
 bun install
 
 # Build all packages
-bun run build
-
-# Run all integration tests with automatic Docker management
-bun run test:all:docker
-
-# Or run individual package tests
-bun run test:redis:docker      # Redis tests only
-bun run test:postgres:docker   # Postgres tests only
-bun run test:scylladb:docker   # ScyllaDB tests only
+bunx spago build
 
 # Build a specific package
 bunx spago build -p yoga-redis
+
+# Run tests for a specific package
+cd packages/yoga-redis && bunx spago test
 ```
 
 ## 🧪 Testing
 
-### Simple as `spago test` 🎉
-
-Integration tests automatically manage Docker - no manual setup needed!
+Run tests for individual packages:
 
 ```bash
-# Just run spago test - it handles everything!
-cd packages/yoga-redis && spago test       # 32 tests, ~5s
-cd packages/yoga-postgres && spago test    # 30 tests, ~10s
-cd packages/yoga-scylladb && spago test    # 26 tests, ~60-90s
-
-# Or from root directory
-bun run test:redis        # spago test -p yoga-redis
-bun run test:postgres     # spago test -p yoga-postgres
-bun run test:scylladb     # spago test -p yoga-scylladb
+cd packages/yoga-redis && bunx spago test
+cd packages/yoga-postgres && bunx spago test
+cd packages/yoga-fastify-om && bunx spago test
 ```
 
-**What happens automatically:**
-1. ✅ Starts database services in Docker (via FFI)
-2. ✅ Waits for services to be healthy
-3. ✅ Runs comprehensive integration tests
-4. ✅ Cleans up Docker containers (even if tests fail)
-
-### How It Works
-
-Tests import the shared `yoga-test-docker` package and use `bracket` for guaranteed cleanup:
-
-```purescript
-import Yoga.Test.Docker as Docker
-
-bracket
-  (Docker.startService "docker-compose.test.yml" 30)  -- Acquire
-  (\_ -> Docker.stopService "docker-compose.test.yml") -- Release (always!)
-  (\_ -> runSpec spec)                                 -- Use
-```
-
-**Benefits:**
-- 🎯 Zero manual Docker commands
-- 🛡️ Guaranteed cleanup (even on test failure/Ctrl+C)
-- ♻️ Shared Docker utilities (DRY - no duplication)
-- 📦 Each package just imports `yoga-test-docker`
-- 🚀 Just `spago test` and go!
-
-**📚 Full Testing Guide:** See [TESTING_WITH_DOCKER.md](TESTING_WITH_DOCKER.md) for complete documentation and troubleshooting.
+Some packages with integration tests use Docker for test infrastructure (Redis, Postgres, ScyllaDB). The `yoga-test-docker` package provides utilities for managing Docker Compose services within tests.
 
 ## 📚 Documentation
 
-Each package includes its own README with:
-- Installation instructions
-- API documentation
-- Usage examples
-- FFI patterns and best practices
+Comprehensive documentation is available for key packages:
+- **yoga-redis** / **yoga-redis-om** - Full API reference and examples
+- **yoga-sql-types** - SQL type system documentation
+- **yoga-test-docker** - Docker integration testing guide
+- **yoga-postgres** / **yoga-postgres-om** - PostgreSQL usage
+- **yoga-sqlite-om** - SQLite with Om
 
-See individual package READMEs in `packages/<package-name>/README.md`
+Additional documentation:
+- `docs/ENDPOINT2_RECORD_API.md` - Tapir-style endpoint specification for Fastify
+- `docs/FIELD_OMISSION.md` - Union constraint and field omission patterns
 
 ## 🏗️ Monorepo Structure
 
@@ -119,17 +83,16 @@ purescript-yoga-bindings/
 │   │   ├── src/
 │   │   ├── test/                # Package-specific tests
 │   │   ├── spago.yaml
-│   │   ├── package.json
-│   │   └── README.md
+│   │   └── package.json
 │   ├── yoga-redis-om/           # Redis with Om observability
 │   ├── yoga-postgres/
 │   ├── yoga-postgres-om/
-│   └── ...                      # 24 packages total
-├── docker-compose.test.yml      # Test infrastructure
+│   ├── yoga-fastify-om/         # Fastify web framework with Om
+│   └── ...                      # Additional packages
+├── docs/                        # Documentation
 ├── spago.yaml                   # Workspace configuration
 ├── package.json                 # Root package.json
-├── test-all.sh                  # Test runner
-└── test-with-docker.sh          # Test runner with Docker lifecycle
+└── README.md
 ```
 
 ## 🔧 Development
