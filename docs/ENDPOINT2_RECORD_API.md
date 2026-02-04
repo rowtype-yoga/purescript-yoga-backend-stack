@@ -212,21 +212,44 @@ handler { request } = case request.body of
   -- Missing: NoBody, FormData, TextBody, BytesBody cases
 ```
 
-## Limitations
+## Field Omission via coerceHandler
 
-### Union Constraint Not Yet Implemented
-
-Currently, you must specify complete request types. Field omission via Union constraints is TODO:
+You can write handlers with full request types (all three fields) and coerce them to match partial endpoint types:
 
 ```purescript
--- ❌ Not yet supported:
-type MinimalRequest = {}  -- Would need Union to fill defaults
+-- Endpoint with partial type (only body):
+type PartialReq = { body :: RequestBody User }
+endpoint = endpoint2 apiRoute (Proxy :: _ PartialReq) (Proxy :: _ Response)
 
--- ✅ Currently required:
-type MinimalRequest = { body :: RequestBody Unit }  -- Must be explicit
+-- Handler with full type (all three fields):
+type FullReq = { query :: Record (), headers :: Record (), body :: RequestBody User }
+handlerFull :: EndpointHandler2 ApiRoute FullReq Response ctx err
+handlerFull { path, request } = do
+  -- Can access all fields, even though endpoint only has body!
+  let _ = request.query     -- Record () (parsed from undefined)
+  let _ = request.headers   -- Record () (parsed from undefined)
+  case request.body of
+    JSONBody user -> pure (processUser user)
+    NoBody -> pure errorResponse
+
+-- Coerce to partial type (safe via JS runtime equivalence):
+handler :: EndpointHandler2 ApiRoute PartialReq Response ctx err
+handler = coerceHandler handlerFull
 ```
 
-This is a known limitation due to PureScript's Union constraint not supporting overlapping fields. We're investigating solutions.
+### Why This Works
+
+At JavaScript runtime, `{ body: x }` is identical to `{ body: x, query: undefined, headers: undefined }`. The `coerceHandler` function safely bridges these types via `unsafeCoerce`, which is safe because:
+
+1. **Same runtime representation**: Both are JS objects with the same fields
+2. **Missing fields are undefined**: JS semantics guarantee this
+3. **Parsers provide defaults**: `undefined` is parsed as empty `{}` or `NoBody`
+
+See [`docs/FIELD_OMISSION.md`](./FIELD_OMISSION.md) for complete explanation and examples.
+
+### Union Constraint
+
+The Union constraint approach (e.g., `Union (body :: A) (body :: B, query :: C) result`) doesn't work in PureScript due to overlapping field names. The `coerceHandler` approach achieves the same goal via JavaScript runtime equivalence.
 
 ## Testing
 
