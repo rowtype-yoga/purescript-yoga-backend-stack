@@ -8,14 +8,16 @@ package:
       githubRepo: purescript-yoga-bindings
       subdir: packages/yoga-fastify-om
   dependencies:
-    - yoga-fastify: "*"
-    - yoga-om-core: ">=1.0.0 <2.0.0"
-    - yoga-om-layer: ">=1.0.0 <2.0.0"
+    - forgetmenot
+    - undefined-is-not-a-problem
     - aff: ">=7.0.0 <8.0.0"
     - effect: ">=4.0.0 <5.0.0"
     - prelude: ">=6.0.0 <7.0.0"
     - routing-duplex: ">=0.7.0 <0.8.0"
+    - yoga-fastify: "*"
     - yoga-json: ">=5.0.0 <6.0.0"
+    - yoga-om-core: ">=1.0.0 <2.0.0"
+    - yoga-om-layer: ">=1.0.0 <2.0.0"
   test:
     main: Test.Main
     dependencies:

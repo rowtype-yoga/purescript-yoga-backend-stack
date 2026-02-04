@@ -5,7 +5,10 @@ module Yoga.Fastify.Om.Endpoint2
   -- * Endpoint Handler
   , EndpointHandler2
   , handleEndpoint2
-  -- * Defaults
+  -- * Request Types
+  , OptsR
+  , OptsOpt
+  , Opts
   , EndpointDefaults
   -- * Parsing Typeclasses
   , class ParseRequest
@@ -21,10 +24,12 @@ import Control.Monad (void)
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.Symbol (class IsSymbol, reflectSymbol)
+import Data.Undefined.NoProblem (Opt)
 import Effect.Class (liftEffect)
 import Foreign (Foreign, unsafeToForeign)
 import Foreign.Object (Object)
 import Foreign.Object as Object
+import ForgetMeNot (Id(..))
 import Prim.Row (class Cons, class Lacks, class Union, class Nub)
 import Prim.RowList (class RowToList, RowList)
 import Prim.RowList as RL
@@ -51,19 +56,41 @@ data Endpoint2 path request response = Endpoint2
   , responseType :: Proxy response
   }
 
--- | Default values for omitted request fields (row type for Union)
+-- | Request record parameterized by wrapper type
+-- | 
+-- | Use with Opt for optional fields, Identity for actual values
+type OptsR :: (Type -> Type) -> Type -> Type -> Type -> Type
+type OptsR f q h b =
+  { query :: f q
+  , headers :: f h
+  , body :: f b
+  }
+
+-- | Request with Opt wrapper (for Union with defaults)
+type OptsOpt q h b = OptsR Opt q h b
+
+-- | Request with Identity wrapper (actual runtime values)
+type Opts q h b = OptsR Id q h b
+
+-- | Default values for omitted request fields (wrapped in Opt)
 type EndpointDefaults =
-  ( query :: Record ()
-  , headers :: Record ()
-  , body :: RequestBody Unit
+  ( query :: Opt (Record ())
+  , headers :: Opt (Record ())
+  , body :: Opt (RequestBody Unit)
   )
 
 -- | Build an endpoint specification
--- | 
--- | Note: Request must be a complete record type. Use EndpointDefaults as a guide:
--- |   type MyRequest = { query :: {...}, headers :: {...}, body :: RequestBody SomeType }
 -- |
--- | TODO: Add Union constraint for field omission (blocked by overlapping field issue)
+-- | Currently requires explicit field specification due to Union overlapping field constraints.
+-- | 
+-- | TODO: Implement Union with Opt-wrapped defaults to allow field omission:
+-- |   1. Transform user input `{ body :: A }` to `{ body :: Opt A }`
+-- |   2. Union with `{ body :: Opt B, query :: Opt C, headers :: Opt D }`
+-- |   3. User's Opt fields take precedence
+-- |   4. UnsafeCoerce from Opt to Id
+-- |
+-- | For now, specify all fields explicitly:
+-- |   type MyRequest = { query :: Record (), headers :: Record (), body :: RequestBody CreateUser }
 endpoint2
   :: forall path request response
    . RouteDuplex' path
@@ -81,6 +108,8 @@ endpoint2 pathCodec requestType responseType = Endpoint2
 --------------------------------------------------------------------------------
 
 -- | Handler that receives path and fully parsed request record
+-- |
+-- | Request is Opts q h b = { query :: Id q, headers :: Id h, body :: Id b }
 type EndpointHandler2 path request response ctx err =
   { path :: path
   , request :: request

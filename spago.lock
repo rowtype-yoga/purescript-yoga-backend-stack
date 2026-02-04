@@ -733,12 +733,14 @@
             {
               "effect": ">=4.0.0 <5.0.0"
             },
+            "forgetmenot",
             {
               "prelude": ">=6.0.0 <7.0.0"
             },
             {
               "routing-duplex": ">=0.7.0 <0.8.0"
             },
+            "undefined-is-not-a-problem",
             {
               "yoga-fastify": "*"
             },
@@ -774,6 +776,7 @@
             "foldable-traversable",
             "foreign",
             "foreign-object",
+            "forgetmenot",
             "fork",
             "free",
             "functions",
@@ -821,6 +824,7 @@
             "type-equality",
             "typelevel-prelude",
             "uncurried-transformers",
+            "undefined-is-not-a-problem",
             "unfoldable",
             "unsafe-coerce",
             "variant",
@@ -3938,6 +3942,12 @@
         "unfoldable"
       ]
     },
+    "forgetmenot": {
+      "type": "registry",
+      "version": "0.1.0",
+      "integrity": "sha256-YYLWpHQwJ1zKmPxLo7sZOk+kYuKOpOpRhdz9vwI/p7Q=",
+      "dependencies": []
+    },
     "fork": {
       "type": "registry",
       "version": "6.0.0",
@@ -4708,6 +4718,22 @@
         "tailrec",
         "transformers",
         "tuples"
+      ]
+    },
+    "undefined-is-not-a-problem": {
+      "type": "registry",
+      "version": "1.1.0",
+      "integrity": "sha256-0YkVzpcKi40T43go7/f8uLVIYgir6lGzOytL6LPfiog=",
+      "dependencies": [
+        "effect",
+        "either",
+        "foreign",
+        "maybe",
+        "newtype",
+        "prelude",
+        "tuples",
+        "type-equality",
+        "unsafe-coerce"
       ]
     },
     "unfoldable": {
