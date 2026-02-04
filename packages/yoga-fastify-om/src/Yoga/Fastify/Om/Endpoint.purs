@@ -31,7 +31,8 @@ import Control.Monad (void)
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.Symbol (class IsSymbol, reflectSymbol)
-import Data.Undefined.NoProblem (Opt)
+import Data.Tuple.Nested ((/\))
+import Data.Undefined.NoProblem (Opt, fromOpt)
 import Effect (Effect)
 import Effect.Class (liftEffect)
 import Foreign (Foreign, unsafeToForeign)
@@ -52,6 +53,7 @@ import Yoga.Fastify.Om as FO
 import Yoga.Fastify.Om.RequestBody (RequestBody(..))
 import Yoga.JSON (class ReadForeign, class WriteForeign, read, writeImpl)
 import Yoga.Om as Om
+import Uncurried.RWSET (withRWSET)
 
 --------------------------------------------------------------------------------
 -- Endpoint Specification
@@ -123,11 +125,11 @@ type SimpleResponse body = Response () body
 -- | Handler that receives path and fully parsed request record
 -- |
 -- | Returns a Response with status, headers (homogeneous record), and body
-type EndpointHandler path request responseHeaders response ctx err =
+type EndpointHandler ctx err path request response =
   { path :: path
   , request :: request
   }
-  -> Om.Om { httpRequest :: FO.RequestContext | ctx } err (Response responseHeaders response)
+  -> Om.Om { request :: request, httpRequest :: FO.RequestContext | ctx } err response
 
 --------------------------------------------------------------------------------
 -- Parsing Typeclasses
@@ -328,9 +330,9 @@ else instance ReadForeign a => ParseBodyField (RequestBody a) where
 -- | Coerce handler from full request type to partial request type
 -- | Safe because at JS runtime: { body: x } === { body: x, query: undefined, headers: undefined }
 coerceHandler
-  :: forall path partial full responseHeaders response ctx err
-   . EndpointHandler path (Record full) responseHeaders response ctx err
-  -> EndpointHandler path (Record partial) responseHeaders response ctx err
+  :: forall ctx err path partial full response
+   . EndpointHandler ctx err path (Record full) response
+  -> EndpointHandler ctx err path (Record partial) response
 coerceHandler = unsafeCoerce
 
 --------------------------------------------------------------------------------
@@ -371,12 +373,14 @@ instance
 
 -- | Execute an endpoint handler with automatic parsing and response sending
 handleEndpoint
-  :: forall path request responseHeaders response ctx err
+  :: forall ctx err path request responseRow responseHeaders responseBody o_
    . ParseRequest request
+  => Union responseRow o_ (status :: StatusCode, headers :: Record responseHeaders, body :: responseBody)
+  => Lacks "request" ctx
   => SetHeaders responseHeaders
-  => WriteForeign response
-  => Endpoint path (Record request) response
-  -> EndpointHandler path (Record request) responseHeaders response ctx err
+  => WriteForeign responseBody
+  => Endpoint path (Record request) (Record responseRow)
+  -> EndpointHandler ctx err path (Record request) (Record responseRow)
   -> FastifyReply
   -> Om.Om { httpRequest :: FO.RequestContext | ctx } err Unit
 handleEndpoint (Endpoint spec) handler reply = do
@@ -402,8 +406,19 @@ handleEndpoint (Endpoint spec) handler reply = do
           void $ FO.send (unsafeToForeign parseError) reply
 
         Right request -> do
-          -- Call handler with path and request
-          { status, headers, body } <- handler { path, request }
+          response <- withRequestCtx request (handler { path, request })
+          let
+            responseFull =
+              unsafeCoerce response
+                :: { status :: Opt StatusCode
+                   , headers :: Opt (Record responseHeaders)
+                   , body :: responseBody
+                   }
+            status = fromOpt (StatusCode 200) responseFull.status
+
+            headers :: Record responseHeaders
+            headers = fromOpt (unsafeCoerce {}) responseFull.headers
+            body = responseFull.body
 
           -- Set status
           void $ liftEffect $ F.status status reply
@@ -416,3 +431,12 @@ handleEndpoint (Endpoint spec) handler reply = do
           void $ FO.send encodedResponse reply
   where
   unwrapUrl (RouteURL s) = s
+
+  withRequestCtx
+    :: forall ctx' err' request' a
+     . Lacks "request" ctx'
+    => Record request'
+    -> Om.Om { request :: Record request', httpRequest :: FO.RequestContext | ctx' } err' a
+    -> Om.Om { httpRequest :: FO.RequestContext | ctx' } err' a
+  withRequestCtx req (Om.Om om) =
+    Om.Om (withRWSET (\r s -> Record.insert (Proxy :: Proxy "request") req r /\ s) om)

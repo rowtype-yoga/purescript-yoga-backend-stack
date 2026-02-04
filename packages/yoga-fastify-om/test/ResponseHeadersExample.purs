@@ -1,31 +1,8 @@
 module Test.Yoga.Fastify.Om.ResponseHeadersExample where
 
-{-
-  Endpoint API - Tests as Documentation
-  ======================================
-
-  EndpointHandler has 6 type parameters:
-  
-  EndpointHandler path request responseHeaders response ctx err
-                  ^^^^  ^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^ ^^^ ^^^
-                  |     |        |                |        |   error type
-                  |     |        |                |        app context
-                  |     |        |                response body type
-                  |     |        OUTGOING response headers (what YOU send back)
-                  |     INCOMING request (query/headers/body) - Union constraint!
-                  path type (route matching)
-
-  Examples show:
-  1. Minimal request (just body) - Union allows omitting query/headers
-  2. Request with query params - Union allows omitting headers  
-  3. Request with headers - Union allows omitting query
-  4. Full request (all fields)
-  5. Different response headers
--}
-
 import Prelude
 import Data.Generic.Rep (class Generic)
-import Data.Maybe (Maybe)
+import Data.Maybe (Maybe(..))
 import Routing.Duplex (RouteDuplex')
 import Routing.Duplex as RD
 import Routing.Duplex.Generic as RG
@@ -34,10 +11,6 @@ import Type.Proxy (Proxy(..))
 import Yoga.Fastify.Om.Endpoint as E
 import Yoga.Fastify.Om.RequestBody (RequestBody(..))
 import Yoga.JSON (class ReadForeign, class WriteForeign)
-
--- ============================================================================
--- API Types
--- ============================================================================
 
 type User =
   { id :: Int
@@ -63,64 +36,52 @@ apiRoute = RD.root $ RG.sum
 
 type AppContext = ()
 
--- Example 1: Minimal request - just body (Union allows omitting query/headers)
 type CreateUserRequest = { body :: RequestBody CreateUserReq }
+type CreateUserResponse = { body :: User }
 
-createUserHandler :: E.EndpointHandler ApiRoute CreateUserRequest () User AppContext ()
+createUserHandler :: E.EndpointHandler AppContext () ApiRoute CreateUserRequest CreateUserResponse
 createUserHandler { path, request } =
   case path, request.body of
-    CreateUser, JSONBody { name, email } -> pure
-      { status: E.StatusCode 201
-      , headers: {}
-      , body: { id: 1, name, email }
-      }
-    _, _ -> pure
-      { status: E.StatusCode 400
-      , headers: {}
-      , body: { id: 0, name: "error", email: "error" }
-      }
+    CreateUser, JSONBody { name, email } -> pure { body: { id: 1, name, email } }
+    _, _ -> pure { body: { id: 0, name: "error", email: "error" } }
 
--- Example 2: Request with query params (Union allows omitting headers)
 type ListUsersRequest =
   { query :: Record (page :: Int, limit :: Int)
   , body :: RequestBody Unit
   }
 
-listUsersHandler :: E.EndpointHandler ApiRoute ListUsersRequest () (Array User) AppContext ()
-listUsersHandler { path, request } = do
+type ListUsersResponse = { body :: Array User }
+
+listUsersHandler :: E.EndpointHandler AppContext () ApiRoute ListUsersRequest ListUsersResponse
+listUsersHandler { request } = do
   let { page, limit } = request.query
   pure
-    { status: E.StatusCode 200
-    , headers: {}
-    , body: [ { id: 1, name: "Alice", email: "alice@example.com" }
-            , { id: 2, name: "Bob", email: "bob@example.com" }
-            ]
+    { body:
+        [ { id: page, name: "Alice", email: "alice@example.com" }
+        , { id: limit, name: "Bob", email: "bob@example.com" }
+        ]
     }
 
--- Example 3: Request with incoming headers (Union allows omitting query)
 type AuthenticatedCreateRequest =
   { headers :: Record (authorization :: String)
   , body :: RequestBody CreateUserReq
   }
 
+type AuthenticatedCreateResponse =
+  E.Response ("Location" :: String, "X-Request-Id" :: String) User
+
 authenticatedCreateHandler
-  :: E.EndpointHandler
-       ApiRoute
-       AuthenticatedCreateRequest
-       ( "Location" :: String, "X-Request-Id" :: String )  -- OUTGOING response headers
-       User
-       AppContext
-       ()
+  :: E.EndpointHandler AppContext () ApiRoute AuthenticatedCreateRequest AuthenticatedCreateResponse
 authenticatedCreateHandler { path, request } =
   case path, request.body of
     CreateUser, JSONBody { name, email } -> do
-      let authToken = request.headers.authorization  -- INCOMING request header
+      let authToken = request.headers.authorization
       let userId = 123
       pure
         { status: E.StatusCode 201
-        , headers:  -- OUTGOING response headers
+        , headers:
             { "Location": "/users/" <> show userId
-            , "X-Request-Id": "req-abc-123"
+            , "X-Request-Id": authToken
             }
         , body: { id: userId, name, email }
         }
@@ -130,41 +91,36 @@ authenticatedCreateHandler { path, request } =
       , body: { id: 0, name: "error", email: "error" }
       }
 
--- ============================================================================
--- Example 4: Full Request - Query + Headers + Body (Union constraint!)
--- ============================================================================
--- This request specifies ALL fields - nothing omitted
-
 type FullCreateRequest =
-  { query :: Record (dryRun :: Maybe Boolean)     -- Query params
-  , headers :: Record (authorization :: String)   -- Request headers
-  , body :: RequestBody CreateUserReq             -- Body
+  { query :: Record (dryRun :: Maybe Boolean)
+  , headers :: Record (authorization :: String)
+  , body :: RequestBody CreateUserReq
   }
 
+type FullCreateResponse =
+  E.Response
+    ( "Location" :: String
+    , "X-Request-Id" :: String
+    , "Content-Type" :: String
+    , "Cache-Control" :: String
+    )
+    User
+
 fullCreateHandler
-  :: E.EndpointHandler
-       ApiRoute                         -- path type
-       FullCreateRequest                -- request with ALL fields!
-       ( "Location" :: String           -- many response headers
-       , "X-Request-Id" :: String
-       , "Content-Type" :: String
-       , "Cache-Control" :: String
-       )
-       User                             -- response body
-       AppContext
-       ()
+  :: E.EndpointHandler AppContext () ApiRoute FullCreateRequest FullCreateResponse
 fullCreateHandler { path, request } =
   case path, request.body of
     CreateUser, JSONBody { name, email } -> do
-      -- Access ALL request fields!
-      let _ = request.headers.authorization  -- Request header
-      let _ = request.query.dryRun           -- Query param
-      let userId = 123
+      let
+        userId = case request.query.dryRun of
+          Just true -> 0
+          _ -> 123
+      let requestId = request.headers.authorization
       pure
         { status: E.StatusCode 201
         , headers:
             { "Location": "/users/" <> show userId
-            , "X-Request-Id": "req-abc-123"
+            , "X-Request-Id": requestId
             , "Content-Type": "application/json; charset=utf-8"
             , "Cache-Control": "no-cache"
             }
@@ -181,17 +137,10 @@ fullCreateHandler { path, request } =
       , body: { id: 0, name: "error", email: "error" }
       }
 
--- Example 5: Different status codes
-getUserHandler :: E.EndpointHandler ApiRoute { body :: RequestBody Unit } () User AppContext ()
+type GetUserResponse = { body :: User }
+
+getUserHandler :: E.EndpointHandler AppContext () ApiRoute { body :: RequestBody Unit } GetUserResponse
 getUserHandler { path } =
   case path of
-    GetUser -> pure
-      { status: E.StatusCode 200
-      , headers: {}
-      , body: { id: 1, name: "Alice", email: "alice@example.com" }
-      }
-    _ -> pure
-      { status: E.StatusCode 400
-      , headers: {}
-      , body: { id: 0, name: "Bad Request", email: "" }
-      }
+    GetUser -> pure { body: { id: 1, name: "Alice", email: "alice@example.com" } }
+    _ -> pure { body: { id: 0, name: "Bad Request", email: "" } }

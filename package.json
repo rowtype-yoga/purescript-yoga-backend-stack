@@ -1,5 +1,5 @@
 {
-  "name": "purescript-yoga-bindings",
+  "name": "purescript-yoga-backend-stack",
   "version": "1.0.0",
   "description": "PureScript FFI bindings for databases, messaging, HTTP, and observability",
   "private": true,

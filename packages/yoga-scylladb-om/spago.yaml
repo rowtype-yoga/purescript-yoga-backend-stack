@@ -5,7 +5,7 @@ package:
     license: MIT
     location:
       githubOwner: rowtype-yoga
-      githubRepo: purescript-yoga-bindings
+      githubRepo: purescript-yoga-backend-stack
       subdir: packages/yoga-scylladb-om
   dependencies:
     - yoga-scylladb: "*"

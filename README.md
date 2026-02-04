@@ -1,6 +1,6 @@
-# PureScript Yoga Bindings
+# PureScript Yoga Backend Stack
 
-High-quality, type-safe PureScript FFI bindings for databases, messaging, HTTP frameworks, and observability tools.
+The complete backend stack for PureScript - high-quality, type-safe FFI bindings for databases, messaging, HTTP frameworks, and observability tools.
 
 ## 📦 Packages
 
@@ -76,7 +76,7 @@ Additional documentation:
 ## 🏗️ Monorepo Structure
 
 ```
-purescript-yoga-bindings/
+purescript-yoga-backend-stack/
 ├── packages/
 │   ├── yoga-sql-types/          # Foundation package
 │   ├── yoga-redis/              # Redis base package
