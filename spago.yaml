@@ -1,8 +1,9 @@
 workspace:
   package_set:
     registry: 51.1.0
-  extra_packages:
-    yoga-om-core:
-      path: ../purescript-yoga-om/packages/yoga-om-core
-    yoga-om-layer:
-      path: ../purescript-yoga-om/packages/yoga-om-layer
+  # Note: yoga-om packages not yet published, CI will skip those packages for now
+  # extra_packages:
+  #   yoga-om-core:
+  #     path: ../purescript-yoga-om/packages/yoga-om-core
+  #   yoga-om-layer:
+  #     path: ../purescript-yoga-om/packages/yoga-om-layer
