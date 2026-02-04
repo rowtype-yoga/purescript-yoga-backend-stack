@@ -72,36 +72,40 @@ type OptsOpt q h b = OptsR Opt q h b
 -- | Request with Identity wrapper (actual runtime values)
 type Opts q h b = OptsR Id q h b
 
--- | Default values for omitted request fields (wrapped in Opt)
+-- | Default values for omitted request fields
 type EndpointDefaults =
-  ( query :: Opt (Record ())
-  , headers :: Opt (Record ())
-  , body :: Opt (RequestBody Unit)
+  ( query :: Record ()
+  , headers :: Record ()
+  , body :: RequestBody Unit
   )
 
--- | Build an endpoint specification
+-- | Build an endpoint specification with field omission via unsafeCoerce
 -- |
--- | Currently requires explicit field specification due to Union overlapping field constraints.
--- | 
--- | TODO: Implement Union with Opt-wrapped defaults to allow field omission:
--- |   1. Transform user input `{ body :: A }` to `{ body :: Opt A }`
--- |   2. Union with `{ body :: Opt B, query :: Opt C, headers :: Opt D }`
--- |   3. User's Opt fields take precedence
--- |   4. UnsafeCoerce from Opt to Id
+-- | Accepts partial records (e.g. just `{ body :: ... }`).
+-- | At runtime, we unsafeCoerce to add missing fields.
+-- | Missing fields become `undefined` in JS, parsers provide defaults.
 -- |
--- | For now, specify all fields explicitly:
--- |   type MyRequest = { query :: Record (), headers :: Record (), body :: RequestBody CreateUser }
+-- | The handler receives a record with all three fields:
+-- |   - query :: Record () (or user-specified type)
+-- |   - headers :: Record () (or user-specified type)
+-- |   - body :: RequestBody a (or user-specified type)
+-- |
+-- | Example:
+-- |   type UserInput = { body :: RequestBody CreateUser }
+-- |   endpoint2 apiRoute (Proxy :: _ UserInput) responseProxy
+-- |   -- Handler gets: { query :: Record (), headers :: Record (), body :: RequestBody CreateUser }
 endpoint2
   :: forall path request response
    . RouteDuplex' path
   -> Proxy (Record request)
   -> Proxy response
   -> Endpoint2 path (Record request) response
-endpoint2 pathCodec requestType responseType = Endpoint2
-  { pathCodec
-  , requestType
-  , responseType
-  }
+endpoint2 pathCodec requestType responseType = 
+  Endpoint2
+    { pathCodec
+    , requestType
+    , responseType
+    }
 
 --------------------------------------------------------------------------------
 -- Endpoint Handler
@@ -113,7 +117,8 @@ endpoint2 pathCodec requestType responseType = Endpoint2
 type EndpointHandler2 path request response ctx err =
   { path :: path
   , request :: request
-  } -> Om.Om { httpRequest :: FO.RequestContext | ctx } err response
+  }
+  -> Om.Om { httpRequest :: FO.RequestContext | ctx } err response
 
 --------------------------------------------------------------------------------
 -- Parsing Typeclasses
@@ -122,9 +127,9 @@ type EndpointHandler2 path request response ctx err =
 -- | Parse a request record from raw HTTP data using RowList
 class ParseRequest (r :: Row Type) where
   parseRequest
-    :: Object Foreign  -- query params
-    -> Object String   -- headers
-    -> Maybe Foreign   -- body
+    :: Object Foreign -- query params
+    -> Object String -- headers
+    -> Maybe Foreign -- body
     -> Either String (Record r)
 
 instance
@@ -154,7 +159,7 @@ instance
   , ParseRequestRL tail tailRow
   , Lacks "query" tailRow
   ) =>
-  ParseRequestRL (RL.Cons "query" (Record queryRow) tail) ( query :: Record queryRow | tailRow ) where
+  ParseRequestRL (RL.Cons "query" (Record queryRow) tail) (query :: Record queryRow | tailRow) where
   parseRequestRL _ queryObj headersObj bodyObj = do
     query <- parseQueryFieldRecord (Proxy :: Proxy queryRowList) queryObj
     rest <- parseRequestRL (Proxy :: Proxy tail) queryObj headersObj bodyObj
@@ -167,7 +172,7 @@ instance
   , ParseRequestRL tail tailRow
   , Lacks "headers" tailRow
   ) =>
-  ParseRequestRL (RL.Cons "headers" (Record headersRow) tail) ( headers :: Record headersRow | tailRow ) where
+  ParseRequestRL (RL.Cons "headers" (Record headersRow) tail) (headers :: Record headersRow | tailRow) where
   parseRequestRL _ queryObj headersObj bodyObj = do
     headers <- parseHeadersFieldRecord (Proxy :: Proxy headersRowList) headersObj
     rest <- parseRequestRL (Proxy :: Proxy tail) queryObj headersObj bodyObj
@@ -179,7 +184,7 @@ instance
   , ParseRequestRL tail tailRow
   , Lacks "body" tailRow
   ) =>
-  ParseRequestRL (RL.Cons "body" bodyType tail) ( body :: bodyType | tailRow ) where
+  ParseRequestRL (RL.Cons "body" bodyType tail) (body :: bodyType | tailRow) where
   parseRequestRL _ queryObj headersObj bodyObj = do
     body <- parseBodyField (Proxy :: Proxy bodyType) headersObj bodyObj
     rest <- parseRequestRL (Proxy :: Proxy tail) queryObj headersObj bodyObj
@@ -219,18 +224,22 @@ instance (FO.ParseParam inner) => ParseQueryFieldValue (Maybe inner) where
     Right $ case Object.lookup keyName queryObj of
       Nothing -> Nothing
       Just foreignVal ->
-        let valueStr = unsafeCoerce foreignVal :: String
-        in FO.parseParam valueStr
+        let
+          valueStr = unsafeCoerce foreignVal :: String
+        in
+          FO.parseParam valueStr
 
 else instance (FO.ParseParam ty) => ParseQueryFieldValue ty where
   parseQueryFieldValue _ keyName queryObj =
     case Object.lookup keyName queryObj of
       Nothing -> Left $ "Missing required query parameter: " <> keyName
       Just foreignVal ->
-        let valueStr = unsafeCoerce foreignVal :: String
-        in case FO.parseParam valueStr of
-          Nothing -> Left $ "Invalid query parameter: " <> keyName
-          Just value -> Right value
+        let
+          valueStr = unsafeCoerce foreignVal :: String
+        in
+          case FO.parseParam valueStr of
+            Nothing -> Left $ "Invalid query parameter: " <> keyName
+            Just value -> Right value
 
 --------------------------------------------------------------------------------
 -- Headers Parsing
