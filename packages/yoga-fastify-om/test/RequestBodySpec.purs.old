@@ -66,6 +66,7 @@ createUserJSONHandler
   :: E2.EndpointHandler2
        ApiRoute
        CreateUserJSONRequest
+       ()  -- No custom headers
        User
        AppContext
        ()
@@ -75,14 +76,22 @@ createUserJSONHandler { path, request } =
       -- Body is wrapped in JSONBody - pattern match to extract
       let { name, email } = createReq
       pure
-        { id: 1
-        , name
-        , email
+        { status: E2.StatusCode 201
+        , headers: {}
+        , body: { id: 1, name, email }
         }
     CreateUserJSON, NoBody -> do
-      pure { id: 0, name: "error", email: "no body provided" }
+      pure
+        { status: E2.StatusCode 400
+        , headers: {}
+        , body: { id: 0, name: "error", email: "no body provided" }
+        }
     _, _ -> do
-      pure { id: 0, name: "error", email: "wrong endpoint" }
+      pure
+        { status: E2.StatusCode 400
+        , headers: {}
+        , body: { id: 0, name: "error", email: "wrong endpoint" }
+        }
 
 -- ============================================================================
 -- EXAMPLE 2: NoBody - GET Request with Field Omission

@@ -6,6 +6,11 @@ module Yoga.Fastify.Om.Endpoint2
   , EndpointHandler2
   , handleEndpoint2
   , coerceHandler
+  -- * Response Types
+  , Response
+  , SimpleResponse
+  , class SetHeaders
+  , setHeaders
   -- * Request Types
   , OptsR
   , OptsOpt
@@ -17,15 +22,22 @@ module Yoga.Fastify.Om.Endpoint2
   -- * Re-exports
   , module Routing.Duplex
   , module Yoga.Fastify.Om.RequestBody
+  , module Yoga.Fastify.Fastify
   ) where
 
 import Prelude
 
 import Control.Monad (void)
+import Data.Array as Array
 import Data.Either (Either(..))
+import Data.Foldable (foldl)
 import Data.Maybe (Maybe(..))
+import Data.String (Pattern(..), Replacement(..), replaceAll)
+import Data.String as String
+import Data.String.CodeUnits as SCU
 import Data.Symbol (class IsSymbol, reflectSymbol)
 import Data.Undefined.NoProblem (Opt)
+import Effect (Effect)
 import Effect.Class (liftEffect)
 import Foreign (Foreign, unsafeToForeign)
 import Foreign.Object (Object)
@@ -103,14 +115,24 @@ endpoint2 pathCodec requestType responseType =
 -- Endpoint Handler
 --------------------------------------------------------------------------------
 
+-- | Response with status, headers, and body
+type Response headers body =
+  { status :: StatusCode
+  , headers :: Record headers
+  , body :: body
+  }
+
+-- | Simple response with just body (defaults to 200 OK, no custom headers)
+type SimpleResponse body = Response () body
+
 -- | Handler that receives path and fully parsed request record
 -- |
--- | Request is Opts q h b = { query :: Id q, headers :: Id h, body :: Id b }
-type EndpointHandler2 path request response ctx err =
+-- | Returns a Response with status, headers (homogeneous record), and body
+type EndpointHandler2 path request responseHeaders response ctx err =
   { path :: path
   , request :: request
   }
-  -> Om.Om { httpRequest :: FO.RequestContext | ctx } err response
+  -> Om.Om { httpRequest :: FO.RequestContext | ctx } err (Response responseHeaders response)
 
 --------------------------------------------------------------------------------
 -- Parsing Typeclasses
@@ -311,18 +333,84 @@ else instance ReadForeign a => ParseBodyField (RequestBody a) where
 -- | Coerce handler from full request type to partial request type
 -- | Safe because at JS runtime: { body: x } === { body: x, query: undefined, headers: undefined }
 coerceHandler
-  :: forall path partial full response ctx err
-   . EndpointHandler2 path (Record full) response ctx err
-  -> EndpointHandler2 path (Record partial) response ctx err
+  :: forall path partial full responseHeaders response ctx err
+   . EndpointHandler2 path (Record full) responseHeaders response ctx err
+  -> EndpointHandler2 path (Record partial) responseHeaders response ctx err
 coerceHandler = unsafeCoerce
+
+--------------------------------------------------------------------------------
+-- Response Header Setting
+--------------------------------------------------------------------------------
+
+-- | Convert camelCase field name to HTTP header name
+-- | Examples: contentType -> Content-Type, xRequestId -> X-Request-Id
+toHeaderName :: String -> String
+toHeaderName = splitCamelCase >>> joinWithDash >>> capitalizeWords
+  where
+  splitCamelCase s =
+    SCU.toCharArray s
+      # foldl
+          ( \{ acc, prev } c ->
+              if isUpper c && prev /= '-' then
+                { acc: acc <> "-" <> SCU.singleton c, prev: c }
+              else
+                { acc: acc <> SCU.singleton c, prev: c }
+          )
+          { acc: "", prev: '-' }
+      # _.acc
+
+  isUpper c = c >= 'A' && c <= 'Z'
+
+  joinWithDash = identity
+
+  capitalizeWords s = s
+    # String.split (Pattern "-")
+    # map capitalize
+    # String.joinWith "-"
+
+  capitalize s = case String.uncons s of
+    Nothing -> ""
+    Just { head, tail } -> String.toUpper (String.singleton head) <> tail
+
+-- | Set response headers from a record using RowList
+class SetHeaders (headers :: Row Type) where
+  setHeaders :: Record headers -> FastifyReply -> Effect FastifyReply
+
+instance (RowToList headers rl, SetHeadersRL rl headers) => SetHeaders headers where
+  setHeaders = setHeadersRL (Proxy :: Proxy rl)
+
+-- | Helper class that works with RowList
+class SetHeadersRL (rl :: RowList Type) (headers :: Row Type) | rl -> headers where
+  setHeadersRL :: Proxy rl -> Record headers -> FastifyReply -> Effect FastifyReply
+
+instance SetHeadersRL RL.Nil () where
+  setHeadersRL _ _ reply = pure reply
+
+instance
+  ( IsSymbol name
+  , SetHeadersRL tail tailRow
+  , Cons name String tailRow headers
+  , Lacks name tailRow
+  ) =>
+  SetHeadersRL (RL.Cons name String tail) headers where
+  setHeadersRL _ headers reply = do
+    let
+      key = reflectSymbol (Proxy :: Proxy name)
+      headerName = toHeaderName key
+      value = Record.get (Proxy :: Proxy name) headers
+      tailHeaders = Record.delete (Proxy :: Proxy name) headers :: Record tailRow
+
+    reply' <- F.header headerName value reply
+    setHeadersRL (Proxy :: Proxy tail) tailHeaders reply'
 
 -- | Execute an endpoint handler with automatic parsing and response sending
 handleEndpoint2
-  :: forall path request response ctx err
+  :: forall path request responseHeaders response ctx err
    . ParseRequest request
+  => SetHeaders responseHeaders
   => WriteForeign response
   => Endpoint2 path (Record request) response
-  -> EndpointHandler2 path (Record request) response ctx err
+  -> EndpointHandler2 path (Record request) responseHeaders response ctx err
   -> FastifyReply
   -> Om.Om { httpRequest :: FO.RequestContext | ctx } err Unit
 handleEndpoint2 (Endpoint2 spec) handler reply = do
@@ -349,11 +437,16 @@ handleEndpoint2 (Endpoint2 spec) handler reply = do
 
         Right request -> do
           -- Call handler with path and request
-          responseValue <- handler { path, request }
+          { status, headers, body } <- handler { path, request }
 
-          -- Use yoga-json to encode response
-          let encodedResponse = writeImpl responseValue
-          void $ liftEffect $ F.status (StatusCode 200) reply
+          -- Set status
+          void $ liftEffect $ F.status status reply
+
+          -- Set headers (convert record to HTTP headers)
+          void $ liftEffect $ setHeaders headers reply
+
+          -- Use yoga-json to encode response body
+          let encodedResponse = writeImpl body
           void $ FO.send encodedResponse reply
   where
   unwrapUrl (RouteURL s) = s
