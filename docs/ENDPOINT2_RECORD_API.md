@@ -249,7 +249,16 @@ See [`docs/FIELD_OMISSION.md`](./FIELD_OMISSION.md) for complete explanation and
 
 ### Union Constraint
 
-The Union constraint approach (e.g., `Union (body :: A) (body :: B, query :: C) result`) doesn't work in PureScript due to overlapping field names. The `coerceHandler` approach achieves the same goal via JavaScript runtime equivalence.
+The endpoint uses a Union constraint to validate field compatibility:
+
+```purescript
+endpoint2
+  :: forall path request o_ query headers body response
+   . Union request o_ (query :: query, headers :: headers, body :: body)
+  => ...
+```
+
+This ensures the user's partial request (e.g., `{ body :: ... }`) can be merged with defaults to form a valid full request. The Union constraint validates compatibility without changing the endpoint's type, and `coerceHandler` bridges to full types via JavaScript runtime equivalence.
 
 ## Testing
 

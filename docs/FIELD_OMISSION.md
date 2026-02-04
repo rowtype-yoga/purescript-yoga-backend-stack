@@ -147,19 +147,33 @@ createUserHandler = coerceHandler createUserHandlerFull
 3. **Ergonomics**: Handler can access all fields without explicit parsing
 4. **Zero Runtime Cost**: `coerceHandler` is a type-level operation only
 
-## Comparison to Union Constraint Approach
+## Union Constraint
 
-The Union constraint approach fails due to overlapping fields:
+The endpoint uses a Union constraint to validate that partial requests are compatible with full requests:
 
 ```purescript
--- ❌ This doesn't work:
-Union (body :: A) (body :: B, query :: C, headers :: D) result
--- Error: "body" appears in both rows
+endpoint2
+  :: forall path request o_ query headers body response
+   . Union request o_ (query :: query, headers :: headers, body :: body)
+  => ...
+```
 
--- ✅ Our approach works:
-coerceHandler :: EndpointHandler2 path full response ctx err
-              -> EndpointHandler2 path partial response ctx err
--- Safe because JS runtime: { body: x } === { body: x, query: undefined, headers: undefined }
+This constraint ensures that the user's `request` row can be merged with some other row `o_` to produce a valid full request with `query`, `headers`, and `body` fields.
+
+**Key insight**: We use Union for validation, not type computation:
+- Union checks the user's input is compatible
+- The endpoint type remains as the user specified (e.g., just `{ body :: ... }`)
+- `coerceHandler` bridges types via `unsafeCoerce` (safe due to JS runtime equivalence)
+
+```purescript
+-- ✅ Union validates compatibility:
+type PartialReq = (body :: RequestBody User)
+Union PartialReq o_ (query :: q, headers :: h, body :: RequestBody User)
+-- Ensures PartialReq can form a valid full request
+
+-- ✅ coerceHandler bridges types at use site:
+handler :: EndpointHandler2 path FullReq response ctx err
+handlerPartial = coerceHandler handler  -- Safe due to JS semantics
 ```
 
 ## API Reference
